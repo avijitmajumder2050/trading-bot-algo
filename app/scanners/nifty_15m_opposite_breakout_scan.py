@@ -251,7 +251,7 @@ def scan_nifty_stocks():
             "Entry": entry,
             "SL": sl,
             "Quantity": qty,
-            "Expected Loss": loss,
+            "Expected Loss": round(loss, 2),
             "Exposure": exposure,
         })
 
