@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 from app.bot.handlers import handle_message, scan_command
@@ -10,7 +11,6 @@ from app.bot.scheduler import (
     opposite_15m_breakout_tracker,
 )
 from app.config.aws_ssm import get_param
-import os
 
 # ───────────────────────────────
 # Ensure logs folder exists
@@ -33,26 +33,29 @@ BOT_TOKEN = get_param("/trading-bot/telegram/BOT_TOKEN")
 CHAT_ID = get_param("/trading-bot/telegram/CHAT_ID")
 
 # ───────────────────────────────
-# Main bot application
+# Main application
 # ───────────────────────────────
 async def main():
-    # Create Telegram bot application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Message handlers
+    # Handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CommandHandler("scan", scan_command))
 
-    logging.info("🤖 Telegram bot started! Listening for messages...")
+    # ---- Telegram lifecycle (MANUAL) ----
+    await app.initialize()
+    await app.start()
 
-    # Start schedulers in background
+    logging.info("🤖 Telegram bot started")
+
+    # ---- Background schedulers ----
     asyncio.create_task(insidebar_daily_scheduler())
     asyncio.create_task(insidebar_breakout_tracker())
     asyncio.create_task(opposite_15m_scheduler())
     asyncio.create_task(opposite_15m_breakout_tracker())
 
-    # Start polling
-    await app.run_polling()
+    # ---- Keep app alive forever ----
+    await asyncio.Event().wait()
 
 # ───────────────────────────────
 # Entry point

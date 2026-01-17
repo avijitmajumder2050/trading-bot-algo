@@ -180,5 +180,5 @@ def track_insidebar_algo_breakouts_bot():
 # ─────────────────────────────
 if __name__ == "__main__":
     print("🔍 Starting Inside-Bar breakout scanner...")
-    hits = track_insidebar_algo_breakouts()
+    hits = track_insidebar_algo_breakouts_bot()
     print(f"✅ Breakout hits found: {len(hits)}")
