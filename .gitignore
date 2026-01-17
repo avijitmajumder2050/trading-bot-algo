@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+*.log
+
+# Virtual env
+venv/
+.env/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Data (VERY IMPORTANT – avoid leaking data)
+uploads/
+outputs/
+
+
+# AWS / Secrets
+*.pem

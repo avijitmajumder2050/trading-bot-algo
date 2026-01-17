@@ -1,0 +1,8 @@
+python-telegram-bot
+boto3
+pandas
+yfinance
+pytz
+requests
+nest_asyncio
+dhanhq==2.1.0
