@@ -6,6 +6,7 @@ import io
 import boto3
 import pandas as pd
 import logging
+from logging.handlers import RotatingFileHandler
 from ta.trend import EMAIndicator
 from datetime import datetime
 from app.config.settings import S3_BUCKET, MAP_FILE_KEY, EOD_DATA_PREFIX
