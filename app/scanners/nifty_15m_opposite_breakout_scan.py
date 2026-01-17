@@ -3,47 +3,50 @@
 # ==========================================================
 
 import io
+import os
 import time
 import logging
 import pandas as pd
 from datetime import datetime, date
 from dhanhq import DhanContext, dhanhq
 from logging.handlers import RotatingFileHandler
-
 import boto3
 
 from app.config.settings import (
     IST,
     S3_BUCKET,
     AWS_REGION,
-    MAP_FILE_KEY
+    MAP_FILE_KEY,
+    NIFTYMAP_FILE_KEY
 )
 from app.config.aws_ssm import get_param
 
 # ==========================================================
-# LOGGING
+# LOGGING (NO LOGIC CHANGE)
 # ==========================================================
 LOG_FILE = "logs/nifty_15m_opposite_breakout.log"
+os.makedirs("logs", exist_ok=True)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 formatter = logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(message)s"
+    "%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(message)s"
 )
 
-file_handler = RotatingFileHandler(
-    LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5
-)
-file_handler.setFormatter(formatter)
+if not logger.handlers:
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5
+    )
+    file_handler.setFormatter(formatter)
 
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
 
-logger.handlers.clear()
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
+logger.propagate = False
 logger.info("📈 Nifty 15m Opposite Breakout Scanner started")
 
 # ==========================================================
@@ -62,29 +65,41 @@ dhan = dhanhq(
 )
 
 # ==========================================================
-# S3 HELPERS
+# S3 HELPERS (LOGGING ONLY)
 # ==========================================================
 def read_csv_from_s3(key):
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-    return pd.read_csv(io.BytesIO(obj["Body"].read()))
+    try:
+        logger.info(f"📥 Reading S3 file: s3://{S3_BUCKET}/{key}")
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+        df = pd.read_csv(io.BytesIO(obj["Body"].read()))
+        logger.info(f"✅ Loaded {len(df)} rows from {key}")
+        return df
+    except Exception:
+        logger.exception(f"❌ Failed to read S3 file: {key}")
+        raise
 
 
 def write_csv_to_s3(df, key):
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    s3.put_object(
-        Bucket=S3_BUCKET,
-        Key=key,
-        Body=csv_buffer.getvalue()
-    )
-    logger.info(f"✅ Uploaded to S3 → s3://{S3_BUCKET}/{key}")
-
+    try:
+        logger.info(f"📤 Writing {len(df)} rows to S3 → {key}")
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=csv_buffer.getvalue()
+        )
+        logger.info(f"✅ Uploaded to s3://{S3_BUCKET}/{key}")
+    except Exception:
+        logger.exception(f"❌ Failed to upload {key}")
 
 # ==========================================================
 # LOAD NIFTY MAPPING (S3)
 # ==========================================================
 def load_nifty_mapping():
-    df = read_csv_from_s3(MAP_FILE_KEY)
+    logger.info("📊 Loading NIFTY mapping")
+    df = read_csv_from_s3(NIFTYMAP_FILE_KEY)
+    logger.info(f"Columns found: {list(df.columns)}")
 
     security_ids = df["Instrument ID"].dropna().astype(int).tolist()
 
@@ -99,7 +114,7 @@ def load_nifty_mapping():
         )
     )
 
-    logger.info(f"Loaded {len(security_ids)} NIFTY stocks")
+    logger.info(f"✅ Loaded {len(security_ids)} NIFTY stocks")
     return security_ids, id_to_name, id_to_leverage
 
 
@@ -113,7 +128,7 @@ def get_available_balance():
         r = dhan.get_fund_limits()
         return float(r["data"].get("availabelBalance", 0))
     except Exception:
-        logger.exception("Failed to fetch fund limits")
+        logger.exception("❌ Failed to fetch fund limits")
         return 0
 
 
@@ -132,7 +147,6 @@ def calculate_position_size(price, entry, sl, sec_id):
     qty = min(qty_by_risk, qty_by_fund)
     return qty, qty * sl_point, qty * price
 
-
 # ==========================================================
 # UTILITIES
 # ==========================================================
@@ -148,11 +162,11 @@ def is_market_open():
     now = datetime.now(IST).time()
     return now >= datetime.strptime("09:15", "%H:%M").time()
 
-
 # ==========================================================
 # FETCH FIRST TWO 15M CANDLES
 # ==========================================================
 def get_first_two_15m_candles(security_id):
+    logger.debug(f"Fetching candles for {security_id}")
     today = date.today().strftime("%Y-%m-%d")
     time.sleep(0.2)
 
@@ -167,6 +181,7 @@ def get_first_two_15m_candles(security_id):
 
     d = r.get("data", {})
     if not d or not d.get("timestamp"):
+        logger.warning(f"No candle data for {security_id}")
         return None
 
     df = pd.DataFrame({
@@ -179,11 +194,11 @@ def get_first_two_15m_candles(security_id):
 
     return df.sort_values("datetime").head(2)
 
-
 # ==========================================================
 # BUILD OPPOSITE RANGES (S3)
 # ==========================================================
 def build_opposite_ranges():
+    logger.info("📐 Building opposite ranges")
     today = date.today().strftime("%Y-%m-%d")
     rows = []
 
@@ -208,15 +223,21 @@ def build_opposite_ranges():
     if rows:
         df = pd.DataFrame(rows)
         write_csv_to_s3(df, "uploads/nifty_15m_opposite_ranges.csv")
-
+        logger.info(f"✅ Opposite ranges created: {len(df)} rows")
+    else:
+        logger.warning("⚠️ No opposite ranges found")
 
 # ==========================================================
 # LIVE BREAKOUT SCAN (S3)
 # ==========================================================
 def scan_nifty_stocks():
+    logger.info("🔍 Starting breakout scan")
+
     ranges = read_csv_from_s3(
         "uploads/nifty_15m_opposite_ranges.csv"
     ).set_index("security_id").to_dict("index")
+
+    logger.info(f"Loaded {len(ranges)} ranges")
 
     quote_data = dhan.quote_data(
         securities={"NSE_EQ": nifty_security_ids}
@@ -225,52 +246,56 @@ def scan_nifty_stocks():
     results = []
 
     for sec_id, stock_data in quote_data["data"]["data"]["NSE_EQ"].items():
-        sec_id = int(sec_id)
-        if sec_id not in ranges:
-            continue
+        try:
+            sec_id = int(sec_id)
+            if sec_id not in ranges:
+                continue
 
-        price = float(stock_data["last_price"])
-        r = ranges[sec_id]
+            price = float(stock_data["last_price"])
+            r = ranges[sec_id]
 
-        if price > r["range_high"]:
-            signal, entry, sl = "BUY", r["range_high"], r["c2_low"]
-        elif price < r["range_low"]:
-            signal, entry, sl = "SELL", r["range_low"], r["c2_high"]
-        else:
-            continue
+            if price > r["range_high"]:
+                signal, entry, sl = "BUY", r["range_high"], r["c2_low"]
+            elif price < r["range_low"]:
+                signal, entry, sl = "SELL", r["range_low"], r["c2_high"]
+            else:
+                continue
 
-        qty, loss, exposure = calculate_position_size(price, entry, sl, sec_id)
-        if qty <= 0:
-            continue
+            qty, loss, exposure = calculate_position_size(price, entry, sl, sec_id)
+            if qty <= 0:
+                continue
 
-        results.append({
-            "Stock Name": r["stock_name"],
-            "Security ID": sec_id,
-            "Price": price,
-            "Signal": signal,
-            "Entry": entry,
-            "SL": sl,
-            "Quantity": qty,
-            "Expected Loss": round(loss, 2),
-            "Exposure": exposure,
-        })
+            results.append({
+                "Stock Name": r["stock_name"],
+                "Security ID": sec_id,
+                "Price": price,
+                "Signal": signal,
+                "Entry": entry,
+                "SL": sl,
+                "Quantity": qty,
+                "Expected Loss": round(loss, 2),
+                "Exposure": exposure,
+            })
+        except Exception:
+            logger.exception(f"❌ Error processing security {sec_id}")
 
     if results:
         write_csv_to_s3(
             pd.DataFrame(results),
             "uploads/nifty_15m_breakout_signals.csv"
         )
+        logger.info(f"🚀 NIFTY Breakout signals generated: {len(results)}")
 
     return results
-
 
 # ==========================================================
 # MAIN
 # ==========================================================
 if __name__ == "__main__":
     if not is_market_open():
-        logger.warning("Market closed")
+        logger.warning("⛔ Market closed")
         exit()
 
     build_opposite_ranges()
     scan_nifty_stocks()
+
