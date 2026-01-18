@@ -73,7 +73,7 @@ grep -q "export PYTHONPATH=" /home/$APP_USER/.bashrc || \
 sudo tee /usr/local/bin/upload-trading-log.sh > /dev/null <<EOF
 #!/bin/bash
 aws s3 cp /var/log/trading-bot.log \
-  $S3_BUCKET/$S3_PREFIX/trading-bot.log \
+  $S3_BUCKET/$S3_PREFIX/logs/trading-bot.log \
   --region $REGION || true
 EOF
 sudo chmod +x /usr/local/bin/upload-trading-log.sh
