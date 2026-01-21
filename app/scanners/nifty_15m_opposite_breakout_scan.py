@@ -137,7 +137,7 @@ def init_global_fund():
     if AVAILABLE_FUND <= 0:
         logger.warning("⚠️ Available fund is zero or invalid")
 
-
+init_global_fund() 
 def calculate_position_size(price, entry, sl, sec_id):
     sl_point = abs(entry - sl)
     if sl_point == 0:
@@ -358,5 +358,6 @@ if __name__ == "__main__":
         logger.warning("Market closed")
         exit()
 
+    init_global_fund()  
     build_opposite_ranges()
     scan_nifty_stocks()
