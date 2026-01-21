@@ -9,22 +9,37 @@ from app.bot.scheduler import (
     insidebar_breakout_tracker,
     opposite_15m_scheduler,
     opposite_15m_breakout_tracker,
+    terminate_at
 )
 from app.config.aws_ssm import get_param
 
 # ───────────────────────────────
-# Ensure logs folder exists
+# Ensure logs directory exists
 # ───────────────────────────────
 os.makedirs("logs", exist_ok=True)
 
 # ───────────────────────────────
-# Logging
+# Logging (APP LEVEL)
 # ───────────────────────────────
 logging.basicConfig(
     filename="logs/bot.log",
     level=logging.INFO,
-    format="%(asctime)s — %(levelname)s — %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
+
+# ───────────────────────────────
+# Silence noisy libraries
+# ───────────────────────────────
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+# AWS SDK noise (THIS FIXES YOUR ISSUE)
+logging.getLogger("boto3").setLevel(logging.WARNING)
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("s3transfer").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # ───────────────────────────────
 # Load secrets from AWS SSM
@@ -33,32 +48,30 @@ BOT_TOKEN = get_param("/trading-bot/telegram/BOT_TOKEN")
 CHAT_ID = get_param("/trading-bot/telegram/CHAT_ID")
 
 # ───────────────────────────────
-# Main application
+# Main
 # ───────────────────────────────
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers
+    # Telegram handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CommandHandler("scan", scan_command))
 
-    # ---- Telegram lifecycle (MANUAL) ----
-    await app.initialize()
-    await app.start()
+    logging.info("🤖 Telegram bot started (polling enabled)")
 
-    logging.info("🤖 Telegram bot started")
-
-    # ---- Background schedulers ----
-    asyncio.create_task(insidebar_daily_scheduler())
-    asyncio.create_task(insidebar_breakout_tracker())
-    asyncio.create_task(opposite_15m_scheduler())
-    asyncio.create_task(opposite_15m_breakout_tracker())
-
-    # ---- Keep app alive forever ----
-    await asyncio.Event().wait()
+    # Background schedulers
+    loop = asyncio.get_event_loop()
+    loop.create_task(insidebar_daily_scheduler())
+    loop.create_task(insidebar_breakout_tracker())
+    loop.create_task(opposite_15m_scheduler())
+    loop.create_task(opposite_15m_breakout_tracker())
+    loop.create_task(terminate_at(target_hour=10, target_minute=30))  # <-- fix here
+    # Start polling
+    app.run_polling()
 
 # ───────────────────────────────
 # Entry point
 # ───────────────────────────────
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
+
