@@ -114,25 +114,25 @@ nifty_security_ids, nifty_id_to_stock_name, nifty_id_to_leverage = load_nifty_ma
 # ==========================================================
 # FUNDS & POSITION SIZE
 # ==========================================================
-def fetch_available_balance():
+def get_available_balance():
+    """
+    Fetch available balance from DHAN API.
+
+    Returns:
+        float: Available balance. Defaults to 0.0 if not found.
+    """
     try:
         r = dhan.get_fund_limits()
-        data = r.get("data")
-
-        if not isinstance(data, dict):
-            logger.error(f"Unexpected fund response: {r}")
-            return 0.0
-
-        balance = float(data.get("availabelBalance", 0))
-        logger.info(f"💰 Available balance fetched: {balance}")
-        return balance
-
+        data = r.get("data", {})
+        balance = data.get("availabelBalance", 0)
+        return float(balance)
     except Exception:
         logger.exception("Failed to fetch fund limits")
         return 0.0
+
 def init_global_fund():
     global AVAILABLE_FUND
-    AVAILABLE_FUND = fetch_available_balance()
+    AVAILABLE_FUND = get_available_balance()
 
     if AVAILABLE_FUND <= 0:
         logger.warning("⚠️ Available fund is zero or invalid")
@@ -318,7 +318,7 @@ def scan_nifty_stocks():
                 continue
 
             # Fetch fund and leverage for logging
-            fund = AVAILABLE_FUND
+            fund = AVAILABLE_FUND   # ✅ GLOBAL FUND
             leveragenifty = nifty_id_to_leverage.get(str(sec_id), 1)
 
             results.append({
