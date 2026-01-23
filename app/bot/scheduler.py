@@ -13,6 +13,11 @@ from app.scanners.nifty_15m_opposite_breakout_scan import (
     scan_nifty_stocks
 )
 import threading
+from app.config.aws_s3 import read_csv_from_s3
+from app.strategy.stock_selector import select_best_stock
+from app.strategy.nifty_filter import is_nifty_trade_allowed
+from app.execution.trade_executor import execute_trade
+from app.broker.market_data import get_nifty_ltp_and_prev_close
 
 # --------------------------
 # InsideBar 5-min scan state
@@ -218,4 +223,60 @@ async def terminate_at(target_hour=10, target_minute=40):
             break
         await asyncio.sleep(20)
 
+
+
+
+
+BUCKET = "dhan-trading-data"
+CSV_KEY = "uploads/nifty_15m_breakout_signals.csv"
+
+async def run_nifty_breakout_trade():
+    """
+    Reads S3 CSV, selects best stock, applies Nifty filter,
+    and executes trade with logging and Telegram alerts.
+    """
+    try:
+        logging.info("📥 Reading breakout signals from S3")
+        df = read_csv_from_s3(BUCKET, CSV_KEY)
+
+        stock = select_best_stock(df)
+        if not stock:
+            logging.info("❌ No stock selected, exiting trade.")
+            await send_telegram_message("❌ No valid stock for breakout today.")
+            return
+
+        # 2️⃣ Nifty filter (replace with real-time fetch if available)
+       
+        nifty_ltp, nifty_prev_close = get_nifty_ltp_and_prev_close()
+        if not nifty_ltp or not nifty_prev_close:
+            logging.error("❌ Failed to fetch Nifty quotes, skipping trade.")
+            await send_telegram_message("❌ Failed to fetch Nifty quotes, skipping trade.")
+            return
+
+
+        if not is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close):
+             logging.info("❌ Nifty filter failed, skipping trade.")
+             await send_telegram_message(
+        f"❌ Trade skipped for {stock['Stock Name']} | Nifty filter not passed\n"
+        f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}"
+    )
+        return
+
+        # 3️⃣ Execute Trade
+        logging.info(f"🚀 Executing trade for {stock['Stock Name']} | {stock['Signal']}")
+        await send_telegram_message(
+            f"🚀 Executing trade for {stock['Stock Name']} | {stock['Signal']}\n"
+            f"Entry: {stock['Entry']}\nSL: {stock['SL']}\nQty: {stock['Quantity']}"
+        )
+
+        loop = asyncio.get_running_loop()
+        # execute_trade is blocking, run in executor
+        await loop.run_in_executor(None, execute_trade, stock)
+
+        logging.info("✅ Trade execution completed")
+        await send_telegram_message(f"✅ Trade executed successfully for {stock['Stock Name']}")
+
+    except Exception as e:
+        logging.error(f"❌ Error in run_nifty_breakout_trade: {e}")
+        await send_telegram_message(f"❌ Trade execution error: {e}")
 
