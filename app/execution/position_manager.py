@@ -1,27 +1,43 @@
-#app/execution/position_manager.py
 class PositionManager:
-    def __init__(self, entry, sl, qty):
+    def __init__(self, entry, sl, qty, side, rr=1.5):
         self.entry = entry
         self.sl = sl
         self.qty = qty
-        self.risk = abs(entry - sl)
+        self.side = side.upper()
+        self.rr = rr
 
+        self.risk = abs(entry - sl)
         self.partial_done = False
-        self.sl_order_id = None
+
+        # Pre-calc targets
+        if self.side == "BUY":
+            self.one_r = self.entry + self.risk
+            self.target = self.entry + (self.rr * self.risk)
+        else:
+            self.one_r = self.entry - self.risk
+            self.target = self.entry - (self.rr * self.risk)
+
+    def get_target_price(self):
+        """Used for Super Order / logging"""
+        return round(self.target, 2)
 
     def process_ltp(self, ltp):
         """
-        Returns action based on LTP:
+        Returns:
         - PARTIAL_BOOK at 1R
-        - TRAIL_SL at 1.5R
+        - TRAIL_SL at RR (default 1.5R)
         """
-        # Partial book at 1R
-        if not self.partial_done and ltp >= self.entry + self.risk:
-            self.partial_done = True
-            return "PARTIAL_BOOK"
 
-        # Trail SL after 1.5R
-        if ltp >= self.entry + (1.5 * self.risk):
+        # 1R Partial Book
+        if not self.partial_done:
+            if (self.side == "BUY" and ltp >= self.one_r) or \
+               (self.side == "SELL" and ltp <= self.one_r):
+                self.partial_done = True
+                return "PARTIAL_BOOK"
+
+        # 1.5R Trail SL / Exit logic
+        if (self.side == "BUY" and ltp >= self.target) or \
+           (self.side == "SELL" and ltp <= self.target):
             return "TRAIL_SL"
 
         return None

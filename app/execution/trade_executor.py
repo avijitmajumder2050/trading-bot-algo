@@ -1,50 +1,54 @@
-#app/execution/trade_executor.py
+# app/execution/trade_executor.py
+
+import time
 import logging
 from app.execution.position_manager import PositionManager
-from app.broker.dhan_client import place_entry, place_sl, cancel_order
+from app.broker.dhan_super_client import DhanSuperBroker
 from app.broker.market_data import get_ltp
-import time
 
-def execute_trade(stock):
-    sec_id = stock["Security ID"]
-    qty = stock["Quantity"]
+def execute_trade(stock, dhan_context):
+    """
+    Execute trade using Dhan Super Orders.
+    SL and target are managed automatically via Super Orders.
+    Partial booking and trailing logic modifies the super order legs.
+    """
+
+    broker = DhanSuperBroker(dhan_context)
     side = stock["Signal"].upper()
 
-    logging.info(f"Placing entry for {stock['Stock Name']} | Side: {side} | Qty: {qty}")
+    # 1️⃣ Place Super Order
+    order_id = broker.place_trade(stock)
+    if not order_id:
+        logging.error(f"❌ Failed to place Super Order for {stock['Stock Name']}")
+        return
 
-    # 1️⃣ Place Entry
-    place_entry(sec_id, side, qty)
+    logging.info(f"🚀 Monitoring trade for {stock['Stock Name']}")
 
-    # 2️⃣ Place initial SL
-    sl_side = "SELL" if side == "BUY" else "BUY"
-    sl_resp = place_sl(sec_id, sl_side, qty, stock["SL"])
-    sl_order_id = sl_resp["data"]["order_id"]
+    # 2️⃣ Init Position Manager (only for tracking 1R / 1.5R levels)
+    pm = PositionManager(
+        entry=stock["Entry"],
+        sl=stock["SL"],
+        qty=stock["Quantity"],
+        side=side
+    )
 
-    # 3️⃣ Initialize Position Manager
-    pm = PositionManager(stock["Entry"], stock["SL"], qty)
-    pm.sl_order_id = sl_order_id
-
-    # 4️⃣ Monitor LTP
+    # 3️⃣ Monitor LTP and manage Super Order legs
     while True:
-        ltp = get_ltp(sec_id)
+        ltp = get_ltp(stock["Security ID"])
         if not ltp:
             time.sleep(1)
             continue
 
         action = pm.process_ltp(ltp)
 
+        # 1R reached → partial book
         if action == "PARTIAL_BOOK":
-            logging.info("Partial book triggered at 1R")
-            cancel_order(pm.sl_order_id)
-            place_entry(sec_id, sl_side, qty // 2)
-            sl_resp = place_sl(sec_id, sl_side, qty // 2, stock["Entry"])
-            pm.sl_order_id = sl_resp["data"]["order_id"]
+            logging.info(f"🔹 1R reached for {stock['Stock Name']} | Partial booking half qty")
+            broker.partial_book(order_id, stock["Quantity"] // 2)
 
+        # 1.5R reached → trail SL
         elif action == "TRAIL_SL":
-            logging.info("Trail SL triggered at 1.5R")
-            cancel_order(pm.sl_order_id)
-            new_sl = stock["Entry"]
-            sl_resp = place_sl(sec_id, sl_side, qty // 2, new_sl)
-            pm.sl_order_id = sl_resp["data"]["order_id"]
+            logging.info(f"🔁 1.5R reached for {stock['Stock Name']} | Trailing SL to entry")
+            broker.trail_sl(order_id, stock["Entry"])
 
         time.sleep(1)

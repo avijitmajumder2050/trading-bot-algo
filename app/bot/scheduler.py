@@ -4,6 +4,7 @@ import logging
 import boto3
 from datetime import datetime, time
 from app.config.settings import IST, INSIDEBAR_SCAN_TIME
+from app.config.dhan_auth import dhan
 from app.bot.telegram_sender import send_telegram_message
 from app.scanners.inside_bar_15min_RS80 import run_inside_bar_algo_scan
 from app.scanners.inside_bar_algo import track_insidebar_algo_breakouts_bot
@@ -260,7 +261,7 @@ async def run_nifty_breakout_trade():
         f"❌ Trade skipped for {stock['Stock Name']} | Nifty filter not passed\n"
         f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}"
     )
-        return
+             return
 
         # 3️⃣ Execute Trade
         logging.info(f"🚀 Executing trade for {stock['Stock Name']} | {stock['Signal']}")
@@ -271,7 +272,8 @@ async def run_nifty_breakout_trade():
 
         loop = asyncio.get_running_loop()
         # execute_trade is blocking, run in executor
-        await loop.run_in_executor(None, execute_trade, stock)
+        await loop.run_in_executor(None, execute_trade, stock, dhan)
+
 
         logging.info("✅ Trade execution completed")
         await send_telegram_message(f"✅ Trade executed successfully for {stock['Stock Name']}")
