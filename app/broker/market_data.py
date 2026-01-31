@@ -3,10 +3,7 @@ from app.config.dhan_auth import dhan
 import time
 import logging
 logger = logging.getLogger(__name__)
-
-import time
 import json
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -121,39 +118,55 @@ def get_nifty_ltp_and_prev_close():
 
 
 
-def get_ltp(security_id, segment="NSE_EQ", retry_delay=1):
-    """
-    Fetch LTP using quote_data (fast & reliable).
-    Used during live trade execution.
-    """
-    for attempt in (1, 2):
-        try:
-            resp = dhan.quote_data(
-                securities={segment: [security_id]}
-            )
 
-            segment_data = (
-                resp.get("data", {})
-                    .get("data", {})
-                    .get(segment, {})
-            )
+def get_ltp(security_id, segment="NSE_EQ", retry_delay=1, max_attempts=7):
+    """
+    Fetch LTP for a single security with retry and detailed logging.
+
+    Args:
+        security_id (str/int): Instrument/security ID
+        segment (str): Market segment, e.g., "NSE_EQ"
+        retry_delay (int): Seconds to wait between retries
+        max_attempts (int): Maximum number of retry attempts
+
+    Returns:
+        float or None: Last traded price or None if all attempts fail
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = dhan.quote_data(securities={segment: [security_id]})
+
+            data = resp.get("data", {})
+            if not isinstance(data, dict):
+                raise ValueError(f"Unexpected 'data' type: {type(data)}")
+
+            inner_data = data.get("data", {})
+            if not isinstance(inner_data, dict):
+                raise ValueError(f"Unexpected 'data.data' type: {type(inner_data)}")
+
+            segment_data = inner_data.get(segment, {})
+            if not isinstance(segment_data, dict):
+                raise ValueError(f"Unexpected segment data type: {type(segment_data)} | value: {segment_data}")
 
             quote = segment_data.get(str(security_id))
-            if not quote:
-                raise ValueError("Empty quote payload")
+            if not quote or not isinstance(quote, dict):
+                raise ValueError(f"Empty or invalid quote: {quote}")
 
             ltp = quote.get("last_price")
             if ltp is None:
                 raise ValueError("LTP missing in quote")
 
+            # Log success (different message if not first attempt)
+            if attempt > 1:
+                logger.info(f"✅ get_ltp succeeded for {security_id} on attempt {attempt}")
             return float(ltp)
 
         except Exception as e:
-            logger.error(
-                f"❌ get_ltp failed (attempt {attempt}) "
-                f"for {security_id}: {e}"
-            )
-            if attempt == 1:
+            logger.error(f"❌ get_ltp failed (attempt {attempt}) for {security_id}: {e}")
+            if attempt < max_attempts:
                 time.sleep(retry_delay)
+            else:
+                logger.error(f"❌ All {max_attempts} attempts failed for {security_id}")
 
     return None
+
