@@ -9,6 +9,10 @@ from telegram.ext import (
 
 from app.bot.handlers import handle_message, scan_command
 from app.bot.scheduler import (
+    insidebar_daily_scheduler,
+    insidebar_breakout_tracker,
+    opposite_15m_scheduler,
+    opposite_15m_breakout_tracker,
     terminate_at,
     run_nifty_breakout_trade,
 )
@@ -54,7 +58,10 @@ BOT_TOKEN = get_param("/trading-bot/telegram/BOT_TOKEN")
 async def post_init(app):
     logger.info("🚀 Starting background schedulers")
 
-    
+    app.create_task(insidebar_daily_scheduler())
+    app.create_task(insidebar_breakout_tracker())
+    app.create_task(opposite_15m_scheduler())
+    app.create_task(opposite_15m_breakout_tracker())
     app.create_task(terminate_at(target_hour=10, target_minute=30))
     app.create_task(run_nifty_breakout_trade())
 
