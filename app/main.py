@@ -7,7 +7,7 @@ from telegram.ext import (
     filters,
 )
 
-from app.bot.handlers import handle_message, scan_command
+from app.bot.handlers import handle_message
 from app.bot.scheduler import (
     terminate_at,
     run_nifty_breakout_trade,
@@ -72,7 +72,7 @@ def main():
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
-    app.add_handler(CommandHandler("scan", scan_command))
+    
 
     logger.info("🤖 Telegram bot started")
     app.run_polling()
