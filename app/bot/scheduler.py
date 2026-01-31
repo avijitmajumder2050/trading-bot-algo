@@ -85,10 +85,20 @@ async def run_nifty_breakout_trade():
             logging.error("❌ Failed to fetch Nifty quotes, skipping trade.")
             await send_telegram_message("❌ Failed to fetch Nifty quotes, skipping trade.")
             return
+        net_change = nifty_ltp - nifty_prev_close
+        logging.info(
+    f"📊 Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+)
+        
 
         # 3️⃣ Try each stock in ranked order
         loop = asyncio.get_running_loop()
         for attempt, stock in enumerate(ranked_stocks, start=1):
+            allowed = is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close)
+            logging.info(
+                f"🔹 Attempt {attempt}: Checking {stock['Stock Name']} | Signal: {stock['Signal']} "
+                f"| Nifty filter passed: {allowed} | Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+            )
             if not is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close):
                 logging.info(f"❌ Nifty filter failed for {stock['Stock Name']}, skipping")
                 await send_telegram_message(
