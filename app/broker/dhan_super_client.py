@@ -55,17 +55,23 @@ class DhanSuperBroker:
             if ltp is None:
                 logging.error(f"❌ Unable to fetch LTP for {name}. Aborting order.")
                 return None
-
+            
+            # -------------------------------
+            # Skip order if price already crossed entry
+            # -------------------------------
+            if (side_str == "BUY" and ltp < entry) or (side_str == "SELL" and ltp > entry):
+                logging.warning(f"⚠️ Skipping {side_str} order for {name}: LTP={ltp} crossed entry={entry}")
+                return None
             # -------------------------------
             # Risk, trailing jump, and target calculation
             # -------------------------------
-            risk = abs(entry - sl)
+            risk = abs(ltp - sl)
             trailing_jump = round(risk * trailing_multiplier, 2)
 
             target = stock.get("Target")
             if not target or target <= 0:
                 # Use entry as base for target (safer than LTP)
-                target = round(entry + 1.5 * risk if side_str == "BUY" else entry - 1.5 * risk, 2)
+                target = round(ltp + 1.5 * risk if side_str == "BUY" else ltp - 1.5 * risk, 2)
 
             # -------------------------------
             # Prepare payload for logging

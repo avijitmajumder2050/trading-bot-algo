@@ -19,9 +19,17 @@ S3_PREFIX="trading-bot"
 # -----------------------------
 sudo yum update -y
 sudo timedatectl set-timezone Asia/Kolkata
-sudo yum install -y git python3.11 python3-pip awscli
+sudo yum install -y git python3.11 python3.11-pip python3.11-devel awscli
+echo "✅ Installed Python 3.11"
+/usr/bin/python3.11 --version
+python3 --version  # should remain system 3.9
 
 
+# Safe python aliases (user only)
+# -----------------------------
+BASHRC="$APP_HOME/.bashrc"
+grep -q "alias python=python3.11" "$BASHRC" || echo "alias python=python3.11" >> "$BASHRC"
+grep -q "alias pip=pip3.11" "$BASHRC" || echo "alias pip=pip3.11" >> "$BASHRC"
 
 # -----------------------------
 # Get repo URL from SSM
@@ -44,11 +52,12 @@ fi
 
 cd "$REPO_NAME"
 
+
 # -----------------------------
-# Python venv
+# Python venv using 3.11
 # -----------------------------
 if [ ! -d "venv" ]; then
-  python3 -m venv venv
+  /usr/bin/python3.11 -m venv venv
 fi
 
 source venv/bin/activate
