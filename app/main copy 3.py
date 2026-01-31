@@ -14,7 +14,6 @@ from app.bot.scheduler import (
     opposite_15m_scheduler,
     opposite_15m_breakout_tracker,
     terminate_at,
-    run_nifty_breakout_trade,
 )
 from app.config.aws_ssm import get_param
 
@@ -63,7 +62,6 @@ async def post_init(app):
     app.create_task(opposite_15m_scheduler())
     app.create_task(opposite_15m_breakout_tracker())
     app.create_task(terminate_at(target_hour=10, target_minute=30))
-    app.create_task(run_nifty_breakout_trade())
 
 # ───────────────────────────────
 # Main

@@ -19,7 +19,9 @@ S3_PREFIX="trading-bot"
 # -----------------------------
 sudo yum update -y
 sudo timedatectl set-timezone Asia/Kolkata
-sudo yum install -y git python3 python3-pip awscli
+sudo yum install -y git python3.11 python3-pip awscli
+
+
 
 # -----------------------------
 # Get repo URL from SSM

@@ -1,8 +1,13 @@
 # app/broker/super_order.py
 
+import logging
+
 class SuperOrder:
-    def __init__(self, dhan_context):
-        self.dhan_http = dhan_context.get_dhan_http()
+    def __init__(self, dhan_client):
+        """
+        Initialize with dhanhq client instance.
+        """
+        self.dhan_client = dhan_client  # dhanhq object
 
     def place_super_order(
         self,
@@ -18,23 +23,27 @@ class SuperOrder:
         trailingJump=0.0,
         tag=None
     ):
-        payload = {
-            "transactionType": transaction_type.upper(),
-            "exchangeSegment": exchange_segment.upper(),
-            "productType": product_type.upper(),
-            "orderType": order_type.upper(),
-            "securityId": str(security_id),
-            "quantity": int(quantity),
-            "price": float(price),
-            "targetPrice": float(targetPrice),
-            "stopLossPrice": float(stopLossPrice),
-            "trailingJump": float(trailingJump)
-        }
-
-        if tag:
-            payload["correlationId"] = tag
-
-        return self.dhan_http.post("/super/orders", payload)
+        """
+        Place a Super Order using dhanhq SDK method.
+        """
+        try:
+            response = self.dhan_client.place_super_order(
+                security_id=str(security_id),
+                exchange_segment=exchange_segment.upper(),
+                transaction_type=transaction_type.upper(),
+                quantity=int(quantity),
+                order_type=order_type.upper(),
+                product_type=product_type.upper(),
+                price=float(price),
+                targetPrice=float(targetPrice),
+                stopLossPrice=float(stopLossPrice),
+                trailingJump=float(trailingJump),
+                tag=tag
+            )
+            return response
+        except Exception as e:
+            logging.exception(f"❌ Failed to place Super Order for {security_id}: {e}")
+            return None
 
     def modify_super_order(
         self,
@@ -47,28 +56,26 @@ class SuperOrder:
         stopLossPrice=0.0,
         trailingJump=0.0
     ):
-        payload = {"orderId": order_id, "legName": leg_name}
-
-        if leg_name == "ENTRY_LEG":
-            payload.update({
-                "orderType": order_type,
-                "quantity": int(quantity),
-                "price": float(price),
-                "targetPrice": float(targetPrice),
-                "stopLossPrice": float(stopLossPrice),
-                "trailingJump": float(trailingJump)
-            })
-
-        elif leg_name == "STOP_LOSS_LEG":
-            payload.update({
-                "stopLossPrice": float(stopLossPrice),
-                "trailingJump": float(trailingJump)
-            })
-
-        elif leg_name == "TARGET_LEG":
-            payload.update({"targetPrice": float(targetPrice)})
-
-        return self.dhan_http.put(f"/super/orders/{order_id}", payload)
+        try:
+            response = self.dhan_client.modify_super_order(
+                order_id=order_id,
+                order_type=order_type,
+                leg_name=leg_name,
+                quantity=quantity,
+                price=price,
+                targetPrice=targetPrice,
+                stopLossPrice=stopLossPrice,
+                trailingJump=trailingJump
+            )
+            return response
+        except Exception as e:
+            logging.exception(f"❌ Failed to modify Super Order {order_id}: {e}")
+            return None
 
     def cancel_super_order(self, order_id, leg):
-        return self.dhan_http.delete(f"/super/orders/{order_id}/{leg}")
+        try:
+            response = self.dhan_client.cancel_super_order(order_id, leg)
+            return response
+        except Exception as e:
+            logging.exception(f"❌ Failed to cancel Super Order {order_id} leg {leg}: {e}")
+            return None
