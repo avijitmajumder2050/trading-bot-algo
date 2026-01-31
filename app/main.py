@@ -1,9 +1,9 @@
 import logging
 import os
+
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
-    CommandHandler,
     filters,
 )
 
@@ -14,21 +14,47 @@ from app.bot.scheduler import (
 )
 from app.config.aws_ssm import get_param
 
-# ───────────────────────────────
-# Ensure logs directory exists
-# ───────────────────────────────
-os.makedirs("logs", exist_ok=True)
 
 # ───────────────────────────────
-# Logging
+# Logging (FORCED – DO NOT USE basicConfig)
 # ───────────────────────────────
-logging.basicConfig(
-    filename="logs/bot.log",
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "bot.log")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# 🔥 CRITICAL: remove PTB / preloaded handlers
+if root_logger.handlers:
+    root_logger.handlers.clear()
+
+file_handler = logging.FileHandler(LOG_FILE, mode="a")
+file_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
 )
 
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s"
+    )
+)
+
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+logger = logging.getLogger(__name__)
+
+logger.info("✅ Logging system initialized")
+
+
+# ───────────────────────────────
 # Silence noisy libraries
+# ───────────────────────────────
 for lib in [
     "telegram",
     "telegram.ext",
@@ -41,41 +67,43 @@ for lib in [
 ]:
     logging.getLogger(lib).setLevel(logging.WARNING)
 
-logger = logging.getLogger(__name__)
 
 # ───────────────────────────────
 # Load secrets
 # ───────────────────────────────
 BOT_TOKEN = get_param("/trading-bot/telegram/BOT_TOKEN")
 
+
 # ───────────────────────────────
-# Register background jobs (CRITICAL)
+# Background jobs (PTB SAFE)
 # ───────────────────────────────
 async def post_init(app):
-    logger.info("🚀 Starting background schedulers")
+    logger.info("🚀 Starting background jobs")
 
-    
     app.create_task(terminate_at(target_hour=10, target_minute=30))
     app.create_task(run_nifty_breakout_trade())
+
 
 # ───────────────────────────────
 # Main
 # ───────────────────────────────
 def main():
+    logger.info("🤖 Building Telegram application")
+
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .post_init(post_init)   # ✅ THIS IS THE FIX
+        .post_init(post_init)
         .build()
     )
 
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
-    
 
     logger.info("🤖 Telegram bot started")
     app.run_polling()
+
 
 # ───────────────────────────────
 # Entry
