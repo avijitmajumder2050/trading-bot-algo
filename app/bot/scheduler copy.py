@@ -11,7 +11,7 @@ from app.utils.get_instance_id import get_instance_id  # your existing function
 
 import threading
 from app.config.aws_s3 import read_csv_from_s3
-from app.strategy.stock_selector import select_best_stock,rank_stocks
+from app.strategy.stock_selector import select_best_stock
 from app.strategy.nifty_filter import is_nifty_trade_allowed
 from app.execution.trade_executor import execute_trade
 from app.broker.market_data import get_nifty_ltp_and_prev_close
@@ -61,65 +61,70 @@ async def terminate_at(target_hour=10, target_minute=40):
             break
         await asyncio.sleep(20)
 
+
+
+
+
 BUCKET = "dhan-trading-data"
 CSV_KEY = "uploads/nifty_15m_breakout_signals.csv"
 
 async def run_nifty_breakout_trade():
     """
-    Reads S3 CSV, ranks stocks by risk, applies Nifty filter,
-    and tries executing trade sequentially until one succeeds.
+    Reads S3 CSV, selects best stock, applies Nifty filter,
+    and executes trade with logging and Telegram alerts.
     """
     try:
         logging.info("📥 Reading breakout signals from S3")
         df = read_csv_from_s3(BUCKET, CSV_KEY)
 
-        ranked_stocks = rank_stocks(df)
-        if not ranked_stocks:
-            logging.info("❌ No valid stocks for breakout today")
-            await send_telegram_message("❌ No valid stocks for breakout today")
+        stock = select_best_stock(df)
+        if not stock:
+            logging.info("❌ No stock selected, exiting trade.")
+            await send_telegram_message("❌ No valid stock for breakout today.")
             return
 
-        # 2️⃣ Nifty quotes
+        # 2️⃣ Nifty filter (replace with real-time fetch if available)
+       
         nifty_ltp, nifty_prev_close = get_nifty_ltp_and_prev_close()
         if not nifty_ltp or not nifty_prev_close:
             logging.error("❌ Failed to fetch Nifty quotes, skipping trade.")
             await send_telegram_message("❌ Failed to fetch Nifty quotes, skipping trade.")
             return
 
-        # 3️⃣ Try each stock in ranked order
+
+        if not is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close):
+             logging.info("❌ Nifty filter failed, skipping trade.")
+             await send_telegram_message(
+        f"❌ Trade skipped for {stock['Stock Name']} | Nifty filter not passed\n"
+        f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}"
+    )
+             return
+
+        # 3️⃣ Execute Trade
+        logging.info(f"🚀 Executing trade for {stock['Stock Name']} | {stock['Signal']}")
+        await send_telegram_message(
+            f"🚀 Executing trade for {stock['Stock Name']} | {stock['Signal']}\n"
+            f"Entry: {stock['Entry']}\nSL: {stock['SL']}\nQty: {stock['Quantity']}"
+        )
+
         loop = asyncio.get_running_loop()
-        for attempt, stock in enumerate(ranked_stocks, start=1):
-            if not is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close):
-                logging.info(f"❌ Nifty filter failed for {stock['Stock Name']}, skipping")
-                await send_telegram_message(
-                    f"❌ Trade skipped for {stock['Stock Name']} | Nifty filter not passed\n"
-                    f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}"
-                )
-                continue
-
-            logging.info(f"🚀 Attempt {attempt}: Executing trade for {stock['Stock Name']} | {stock['Signal']}")
-            await send_telegram_message(
-                f"🚀 Attempt {attempt}: Executing trade for {stock['Stock Name']} | {stock['Signal']}\n"
-                f"Entry: {stock['Entry']}\nSL: {stock['SL']}\nQty: {stock['Quantity']}"
-            )
-
-            success = await loop.run_in_executor(None, execute_trade, stock, dhan)
-            if success:
-                logging.info(f"✅ Trade executed successfully for {stock['Stock Name']} on attempt {attempt}")
-                await send_telegram_message(
-                    f"✅ Trade executed successfully for {stock['Stock Name']} on attempt {attempt}"
-                )
-                break
-            else:
-                logging.error(f"❌ Trade failed for {stock['Stock Name']} on attempt {attempt}")
-                await send_telegram_message(
-                    f"❌ Trade FAILED for {stock['Stock Name']} on attempt {attempt}, trying next best stock..."
-                )
-
+        # execute_trade is blocking, run in executor
+        success = await loop.run_in_executor(None, execute_trade, stock, dhan)
+        if success:
+           logging.info("✅ Trade execution completed successfully")
+           await send_telegram_message(
+           f"✅ Trade executed successfully for {stock['Stock Name']}"
+    )
         else:
-            logging.error("❌ All trade attempts failed")
-            await send_telegram_message("❌ All trade attempts failed today")
+           logging.error("❌ Trade execution failed")
+           await send_telegram_message(
+        f"❌ Trade FAILED for {stock['Stock Name']}"
+    )
+
+
+        
 
     except Exception as e:
         logging.error(f"❌ Error in run_nifty_breakout_trade: {e}")
         await send_telegram_message(f"❌ Trade execution error: {e}")
+
