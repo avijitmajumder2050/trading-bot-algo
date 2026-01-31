@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-LOG=/var/log/trading-bot-bootstrap.log
+LOG=/var/log/trading-bot-algo-bootstrap.log
 exec > >(tee -a $LOG) 2>&1
 
-echo "🚀 Bootstrapping Trading Bot EC2"
+echo "🚀 Bootstrapping Trading Bot Algo EC2"
 
 REGION="ap-south-1"
-SSM_REPO_PARAM="/trading-bot/github_repo"
+SSM_REPO_PARAM="/trading-bot-algo/github_repo"
 APP_USER="ec2-user"
 APP_HOME="/home/ec2-user"
 
@@ -24,7 +24,7 @@ echo "✅ Installed Python 3.11"
 /usr/bin/python3.11 --version
 python3 --version  # should remain system 3.9
 
-
+# -----------------------------
 # Safe python aliases (user only)
 # -----------------------------
 BASHRC="$APP_HOME/.bashrc"
@@ -52,7 +52,6 @@ fi
 
 cd "$REPO_NAME"
 
-
 # -----------------------------
 # Python venv using 3.11
 # -----------------------------
@@ -79,34 +78,34 @@ grep -q "export PYTHONPATH=" /home/$APP_USER/.bashrc || \
   echo "export PYTHONPATH=$PWD" >> /home/$APP_USER/.bashrc
 
 # -----------------------------
-# Upload ONLY /var/log/trading-bot.log to S3
+# Upload ONLY /var/log/trading-bot-algo.log to S3
 # -----------------------------
-sudo tee /usr/local/bin/upload-trading-log.sh > /dev/null <<EOF
+sudo tee /usr/local/bin/upload-trading-bot-algo-log.sh > /dev/null <<EOF
 #!/bin/bash
-aws s3 cp /var/log/trading-bot.log \
-  $S3_BUCKET/$S3_PREFIX/logs/trading-bot.log \
+aws s3 cp /var/log/trading-bot-algo.log \
+  $S3_BUCKET/$S3_PREFIX/logs/trading-bot-algo.log \
   --region $REGION || true
 EOF
-sudo chmod +x /usr/local/bin/upload-trading-log.sh
+sudo chmod +x /usr/local/bin/upload-trading-bot-algo-log.sh
 
 # -----------------------------
 # systemd uploader service
 # -----------------------------
-sudo tee /etc/systemd/system/trading-log-upload.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/trading-bot-algo-log-upload.service > /dev/null <<EOF
 [Unit]
-Description=Upload trading-bot.log to S3
+Description=Upload trading-bot-algo.log to S3
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/upload-trading-log.sh
+ExecStart=/usr/local/bin/upload-trading-bot-algo-log.sh
 EOF
 
 # -----------------------------
 # systemd uploader timer (5 min)
 # -----------------------------
-sudo tee /etc/systemd/system/trading-log-upload.timer > /dev/null <<EOF
+sudo tee /etc/systemd/system/trading-bot-algo-log-upload.timer > /dev/null <<EOF
 [Unit]
-Description=Upload trading-bot.log to S3 every 5 minutes
+Description=Upload trading-bot-algo.log to S3 every 5 minutes
 
 [Timer]
 OnBootSec=2min
@@ -120,9 +119,9 @@ EOF
 # -----------------------------
 # Trading bot service
 # -----------------------------
-sudo tee /etc/systemd/system/trading-bot.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/trading-bot-algo.service > /dev/null <<EOF
 [Unit]
-Description=Trading Bot Service
+Description=Trading Bot Algo Service
 After=network-online.target
 Wants=network-online.target
 
@@ -134,9 +133,9 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=$APP_HOME/$REPO_NAME/venv/bin/python app/main.py
 Restart=always
 RestartSec=10
-StandardOutput=append:/var/log/trading-bot.log
-StandardError=append:/var/log/trading-bot.log
-ExecStopPost=/usr/local/bin/upload-trading-log.sh
+StandardOutput=append:/var/log/trading-bot-algo.log
+StandardError=append:/var/log/trading-bot-algo.log
+ExecStopPost=/usr/local/bin/upload-trading-bot-algo-log.sh
 
 [Install]
 WantedBy=multi-user.target
@@ -146,8 +145,8 @@ EOF
 # Enable & start
 # -----------------------------
 sudo systemctl daemon-reload
-sudo systemctl enable trading-bot
-sudo systemctl enable --now trading-log-upload.timer
-sudo systemctl restart trading-bot
+sudo systemctl enable trading-bot-algo
+sudo systemctl enable --now trading-bot-algo-log-upload.timer
+sudo systemctl restart trading-bot-algo
 
-echo "✅ Trading Bot started; /var/log/trading-bot.log uploads to S3 only"
+echo "✅ Trading Bot Algo started; /var/log/trading-bot-algo.log uploads to S3 only"
