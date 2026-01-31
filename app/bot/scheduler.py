@@ -109,11 +109,20 @@ async def run_nifty_breakout_trade():
 
         loop = asyncio.get_running_loop()
         # execute_trade is blocking, run in executor
-        await loop.run_in_executor(None, execute_trade, stock, dhan)
+        success = await loop.run_in_executor(None, execute_trade, stock, dhan)
+        if success:
+           logging.info("✅ Trade execution completed successfully")
+           await send_telegram_message(
+           f"✅ Trade executed successfully for {stock['Stock Name']}"
+    )
+        else:
+           logging.error("❌ Trade execution failed")
+           await send_telegram_message(
+        f"❌ Trade FAILED for {stock['Stock Name']}"
+    )
 
 
-        logging.info("✅ Trade execution completed")
-        await send_telegram_message(f"✅ Trade executed successfully for {stock['Stock Name']}")
+        
 
     except Exception as e:
         logging.error(f"❌ Error in run_nifty_breakout_trade: {e}")

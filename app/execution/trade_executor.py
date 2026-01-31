@@ -20,7 +20,7 @@ def execute_trade(stock, dhan_context):
     order_id = broker.place_trade(stock)
     if not order_id:
         logging.error(f"❌ Failed to place Super Order for {stock['Stock Name']}")
-        return
+        return False   
 
     logging.info(f"🚀 Monitoring trade for {stock['Stock Name']}")
 
