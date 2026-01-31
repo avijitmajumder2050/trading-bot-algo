@@ -2,9 +2,10 @@
 
 import logging
 import json
+import time
+from app.config.dhan_auth import dhan  # DHAN SDK with enums
 from app.broker.super_order import SuperOrder
 from app.broker.market_data import get_ltp
-import time
 
 class DhanSuperBroker:
     """
@@ -15,90 +16,133 @@ class DhanSuperBroker:
     def __init__(self, dhan_context):
         self.super = SuperOrder(dhan_context)
 
-    def place_trade(self, stock, trailing_multiplier=0.5):
+    def place_trade(self, stock, trailing_multiplier=0.5, max_ltp_retries=3, ltp_sleep=1):
         """
-        Place a Super Order on DHAN.
+        Place a Super Order on DHAN with robust LTP fetching, trailing stop-loss,
+        and calculated target if not provided.
 
         Args:
             stock (dict): Stock info with keys:
                           'Stock Name', 'Security ID', 'Entry', 'SL', 'Quantity', 'Signal', optionally 'Target'
             trailing_multiplier (float): fraction of risk to use for trailing jump
+            max_ltp_retries (int): max attempts to fetch LTP if None
+            ltp_sleep (int/float): seconds to wait between retries
 
         Returns:
             str: Super Order ID if successful, None otherwise
         """
         try:
+            # Extract stock info
+            name = stock.get("Stock Name", "UNKNOWN")
+            instrument_id = str(stock["Security ID"])
             entry = stock["Entry"]
             sl = stock["SL"]
             qty = stock["Quantity"]
-            side = stock["Signal"].upper()  # "BUY" or "SELL"
-            instrument_id=str(stock["Security ID"])
-            ltp = get_ltp(stock["Security ID"])
-            if not ltp:
-                time.sleep(1)
-                ltp = get_ltp(stock["Security ID"])
-                
+            side_str = stock["Signal"].upper()  # "BUY" or "SELL"
+            side_enum = dhan.BUY if side_str == "BUY" else dhan.SELL
 
-            # Risk & trailing calculation
+            # -------------------------------
+            # Fetch LTP with retries
+            # -------------------------------
+            ltp = None
+            for attempt in range(max_ltp_retries):
+                ltp = get_ltp(stock["Security ID"])
+                if ltp is not None:
+                    break
+                logging.warning(f"LTP fetch failed for {name}, retry {attempt + 1}/{max_ltp_retries}")
+                time.sleep(ltp_sleep)
+
+            if ltp is None:
+                logging.error(f"❌ Unable to fetch LTP for {name}. Aborting order.")
+                return None
+
+            # -------------------------------
+            # Risk, trailing jump, and target calculation
+            # -------------------------------
             risk = abs(entry - sl)
             trailing_jump = round(risk * trailing_multiplier, 2)
 
-            # Target calculation if not provided
             target = stock.get("Target")
             if not target or target <= 0:
-                target = entry + 1.5 * risk if side == "BUY" else entry - 1.5 * risk
-                target = round(target, 2)
+                # Use entry as base for target (safer than LTP)
+                target = round(entry + 1.5 * risk if side_str == "BUY" else entry - 1.5 * risk, 2)
 
-            # Place super order
+            # -------------------------------
+            # Prepare payload for logging
+            # -------------------------------
+            order_payload = {
+                "transactionType": side_str,
+                "exchangeSegment": "NSE",
+                "productType": "INTRADAY",
+                "orderType": "LIMIT",
+                "securityId": instrument_id,
+                "quantity": qty,
+                "price": ltp,
+                "targetPrice": target,
+                "stopLossPrice": sl,
+                "trailingJump": trailing_jump,
+                "correlationId": f"{name}_AUTO"
+            }
+            logging.info("📦 DHAN SuperOrder Payload:\n%s", json.dumps(order_payload, indent=2))
+
+            # -------------------------------
+            # Place Super Order (using DHAN enums)
+            # -------------------------------
             resp = self.super.place_super_order(
-                security_id=str(stock["Security ID"]),
-                exchange_segment="NSE",          # string
-                transaction_type=side,           # "BUY" / "SELL"
+                security_id=instrument_id,
+                exchange_segment=dhan.NSE,
+                transaction_type=side_enum,
                 quantity=qty,
-                order_type="LIMIT",             # string
-                product_type="INTRADAY",         # string
+                order_type=dhan.LIMIT,
+                product_type=dhan.INTRA,
                 price=ltp,
-                stopLossPrice=sl,
                 targetPrice=target,
+                stopLossPrice=sl,
                 trailingJump=trailing_jump,
-                tag=f"{stock['Stock Name']}_AUTO"
+                tag=f"{name}_AUTO"
             )
 
-            # DHAN sometimes returns a string; convert to dict
+            # Convert response if string
             if isinstance(resp, str):
                 resp = json.loads(resp)
 
             if resp.get("status") != "success":
-                logging.error(f"❌ Failed to place Super Order: {resp}")
+                logging.error(f"❌ Failed to place Super Order for {name}: {resp}")
                 return None
 
             order_id = resp["data"]["orderId"]
-            logging.info(f"✅ Super Order placed | Entry: {entry}, SL: {sl}, Target: {target} | ID: {order_id}")
+            logging.info(f"✅ Super Order placed for {name} | Entry: {entry}, SL: {sl}, Target: {target} | ID: {order_id}")
             return order_id
 
         except Exception:
-            logging.exception(f"❌ Failed to place Super Order for {stock.get('Stock Name', 'UNKNOWN')}")
+            logging.exception(f"❌ Exception placing Super Order for {stock.get('Stock Name', 'UNKNOWN')}")
             return None
 
     def partial_book(self, order_id, new_qty):
         logging.info(f"🔹 Partial booking → Qty {new_qty}")
-        return self.super.modify_super_order(
+        resp = self.super.modify_super_order(
             order_id=order_id,
-            order_type="MARKET",
+            order_type=dhan.MARKET,
             leg_name="ENTRY_LEG",
             quantity=new_qty
         )
+        logging.info(f"Partial book response: {resp}")
+        return resp
 
     def trail_sl(self, order_id, new_sl, trailing_jump=0.0):
         logging.info(f"🔁 Trailing SL → {new_sl}, jump: {trailing_jump}")
-        return self.super.modify_super_order(
+        resp = self.super.modify_super_order(
             order_id=order_id,
             order_type=None,
             leg_name="STOP_LOSS_LEG",
             stopLossPrice=new_sl,
             trailingJump=trailing_jump
         )
+        logging.info(f"Trail SL response: {resp}")
+        return resp
 
     def exit_trade(self, order_id):
         logging.warning(f"🛑 Cancelling Super Order {order_id}")
-        return self.super.cancel_super_order(order_id, "ENTRY_LEG")
+        resp = self.super.cancel_super_order(order_id, "ENTRY_LEG")
+        logging.info(f"Exit trade response: {resp}")
+        return resp
