@@ -47,7 +47,10 @@ def execute_trade(stock, dhan_context):
         if not ltp:
             time.sleep(1)
             continue
-
+        
+        logging.info(
+            f"📈 LTP Monitor | {stock['Stock Name']} | LTP={ltp}"
+        )
         action = pm.process_ltp(ltp)
 
         # 1R reached → partial book
@@ -60,4 +63,6 @@ def execute_trade(stock, dhan_context):
             logging.info(f"🔁 1.5R reached for {stock['Stock Name']} | Trailing SL to entry")
             broker.trail_sl(order_id, entry_price)
 
-        time.sleep(1)
+        
+        # ⏱️ WAIT 30 SECONDS BEFORE NEXT CHECK
+        time.sleep(30)

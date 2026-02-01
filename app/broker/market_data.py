@@ -159,6 +159,7 @@ def get_ltp(security_id, segment="NSE_EQ", retry_delay=1, max_attempts=7):
             # Log success (different message if not first attempt)
             if attempt > 1:
                 logger.info(f"✅ get_ltp succeeded for {security_id} on attempt {attempt}")
+            logger.info(f"📡 get_ltp OK | {security_id} | LTP={ltp} | attempt={attempt}")
             return float(ltp)
 
         except Exception as e:
