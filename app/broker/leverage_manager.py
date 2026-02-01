@@ -1,13 +1,14 @@
 import logging
 import pandas as pd
 import io
-from app.broker.dhan_client import s3
+
 from app.config.settings import S3_BUCKET, NIFTYMAP_FILE_KEY
 
 logger = logging.getLogger(__name__)
 
 _LEVERAGE_MAP = {}
 
+s3 = boto3.client("s3", region_name=AWS_REGION)
 
 def _load_leverage_from_s3():
     global _LEVERAGE_MAP
