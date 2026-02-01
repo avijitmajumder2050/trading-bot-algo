@@ -35,13 +35,7 @@ class DhanSuperBroker:
             ltp_sleep (int/float): seconds to wait between retries
 
         Returns:
-             dict: {
-            "order_id": str,
-            "entry": float,
-            "sl": float,
-            "qty": int
-        } or None if failed
-    
+            str: Super Order ID if successful, None otherwise
         """
         try:
             # Extract stock info
@@ -101,8 +95,8 @@ class DhanSuperBroker:
             # -------------------------------
             # Risk, trailing jump, and target calculation
             # -------------------------------
-            risk = abs(ltp - sl)
-            
+            #risk = abs(ltp - sl)
+            risk = risk_amt
             trailing_jump = round(risk * trailing_multiplier, 2)
 
             target = stock.get("Target")
@@ -155,12 +149,7 @@ class DhanSuperBroker:
 
             order_id = resp["data"]["orderId"]
             logging.info(f"✅ Super Order placed for {name} | Entry: {ltp}, SL: {sl}, Target: {target} | ID: {order_id}")
-            return {
-            "order_id": order_id,
-            "entry": ltp,
-            "sl": sl,
-            "qty": qty
-        }
+            return order_id
 
         except Exception:
             logging.exception(f"❌ Exception placing Super Order for {stock.get('Stock Name', 'UNKNOWN')}")
