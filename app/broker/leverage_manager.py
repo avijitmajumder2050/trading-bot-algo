@@ -1,14 +1,16 @@
 import logging
 import pandas as pd
 import io
+import boto3
 
-from app.config.settings import S3_BUCKET, NIFTYMAP_FILE_KEY
+from app.config.settings import S3_BUCKET, NIFTYMAP_FILE_KEY,AWS_REGION
+from app.config.aws_s3 import s3
 
 logger = logging.getLogger(__name__)
 
 _LEVERAGE_MAP = {}
 
-s3 = boto3.client("s3", region_name=AWS_REGION)
+
 
 def _load_leverage_from_s3():
     global _LEVERAGE_MAP

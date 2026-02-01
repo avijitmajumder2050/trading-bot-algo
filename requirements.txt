@@ -6,4 +6,4 @@ pytz
 requests
 nest_asyncio
 dhanhq==2.2.0rc1
-ta
+
