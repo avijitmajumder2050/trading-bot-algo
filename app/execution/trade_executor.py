@@ -62,6 +62,14 @@ def execute_trade(stock, dhan_context):
         elif action == "TRAIL_SL":
             logging.info(f"🔁 1.5R reached for {stock['Stock Name']} | Trailing SL to entry")
             broker.trail_sl(order_id, entry_price)
+        
+        # Full exit logic → separate condition
+        elif action == "EXIT_TRADE":
+            logging.info(f"🛑 EXIT_TRADE triggered for {stock['Stock Name']} | Exiting at MARKET STOP_LOSS")
+            broker.exit_trade_market(order_id, side=side, ltp=ltp)
+            logging.info(f"✅ Trade fully exited for {stock['Stock Name']}")
+            break  # Stop monitoring
+
 
         
         # ⏱️ WAIT 30 SECONDS BEFORE NEXT CHECK

@@ -194,3 +194,40 @@ class DhanSuperBroker:
         resp = self.super.cancel_super_order(order_id, "ENTRY_LEG")
         logging.info(f"Exit trade response: {resp}")
         return resp
+    
+    def exit_trade_market(self, order_id, side, ltp, buffer=1):
+        """
+        Exit a trade immediately using MARKET on STOP_LOSS_LEG.
+        Adds a small buffer below/above LTP to satisfy DHAN API validation rules.
+
+        Args:
+            order_id (str): Super Order ID.
+            side (str): "BUY" or "SELL".
+            ltp (float): Current Last Traded Price.
+            buffer (float): Small adjustment to allow API to trigger STOP_LOSS_LEG.
+
+        Returns:
+            dict: API response from DHAN modify_super_order call.
+        """
+        side = side.upper()
+        if side not in ("BUY", "SELL"):
+            raise ValueError("Side must be BUY or SELL")
+
+        # Determine stopLossPrice to trigger immediately
+        if side == "BUY":
+            stop_price = round(ltp - buffer, 2)  # must be below LTP for BUY
+        else:  # SELL
+            stop_price = round(ltp + buffer, 2)  # must be above LTP for SELL
+
+        logging.info(f"🛑 Exiting trade | Order ID: {order_id} | Side: {side} | Trigger Price: {stop_price}")
+
+        resp = self.super.modify_super_order(
+            order_id=order_id,
+            order_type=dhan.MARKET,
+            leg_name="STOP_LOSS_LEG",
+            stopLossPrice=stop_price,
+            trailingJump=1  # can be 0 if you want instant exit
+        )
+
+        logging.info(f"Exit trade MARKET response: {resp}")
+        return resp

@@ -33,7 +33,7 @@ class PositionManager:
             if (self.side == "BUY" and ltp >= self.one_r) or \
                (self.side == "SELL" and ltp <= self.one_r):
                 self.partial_done = True
-                return "TRAIL_SL"
+                return "PARTIAL_BOOK"
 
         # 1.5R Trail SL / Exit logic
         if (self.side == "BUY" and ltp >= self.target) or \
