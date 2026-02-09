@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 # ==========================================================
 # DHAN QUOTE WITH RETRY (GENERIC SEGMENT)
 # ==========================================================
-def get_quotes_with_retry(security_ids, segment, retry_delay=1, max_retries=10):
+def get_quotes_with_retry(security_ids, segment, retry_delay=1):
     """
-    Fetch DHAN quotes with retry + batching (max 1000 per request)
+    Fetch DHAN quotes with retry support.
 
     Args:
         security_ids : list[int | str]
@@ -21,69 +21,48 @@ def get_quotes_with_retry(security_ids, segment, retry_delay=1, max_retries=10):
     Returns:
         dict -> {security_id: quote_data} or None
     """
-
     if not isinstance(security_ids, list):
         security_ids = [security_ids]
+    max_retries = 10
+    for attempt in  range(1, max_retries + 1):
+        try:
+            logger.info(
+                f"📡 Fetching DHAN quotes for {segment} {security_ids} (attempt {attempt})"
+            )
 
-    BATCH_SIZE = 1000
-    all_quotes = {}
+            quote_data = dhan.quote_data(
+                securities={segment: security_ids}
+            )
 
-    # Split into batches of 1000
-    for i in range(0, len(security_ids), BATCH_SIZE):
-        batch_ids = security_ids[i:i + BATCH_SIZE]
+            # Defensive: sometimes DHAN returns string
+            if isinstance(quote_data, str):
+                quote_data = json.loads(quote_data)
 
-        logger.info(f"📦 Processing batch {i//BATCH_SIZE + 1} "
-                    f"({len(batch_ids)} instruments)")
+            segment_quotes = (
+                quote_data.get("data", {})
+                .get("data", {})
+                .get(segment)
+            )
 
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(
-                    f"📡 Fetching DHAN quotes for {segment} "
-                    f"{len(batch_ids)} instruments (attempt {attempt})"
-                )
+            if not isinstance(segment_quotes, dict):
+                raise ValueError(f"Invalid quote payload: {quote_data}")
 
-                quote_data = dhan.quote_data(
-                    securities={segment: batch_ids}
-                )
+            logger.info(
+                f"✅ DHAN quotes fetched ({len(segment_quotes)} instruments)"
+            )
+            return segment_quotes
 
-                if isinstance(quote_data, str):
-                    quote_data = json.loads(quote_data)
+        except Exception as e:
+            logger.error(
+                f"❌ Quote fetch failed (attempt {attempt}) for {segment}: {e}",
+                exc_info=True
+            )
+            if attempt == 1:
+                logger.info(f"⏳ Retrying in {retry_delay} second...")
+                time.sleep(retry_delay)
 
-                segment_quotes = (
-                    quote_data.get("data", {})
-                    .get("data", {})
-                    .get(segment)
-                )
-
-                if not isinstance(segment_quotes, dict):
-                    raise ValueError(f"Invalid quote payload: {quote_data}")
-
-                # Merge batch result
-                all_quotes.update(segment_quotes)
-
-                logger.info(
-                    f"✅ Batch success ({len(segment_quotes)} instruments)"
-                )
-                break  # exit retry loop if success
-
-            except Exception as e:
-                logger.error(
-                    f"❌ Batch failed (attempt {attempt}) for {segment}: {e}",
-                    exc_info=True
-                )
-
-                if attempt < max_retries:
-                    logger.info(f"⏳ Retrying in {retry_delay} second...")
-                    time.sleep(retry_delay)
-                else:
-                    logger.error("🛑 Max retries reached for this batch")
-        time.sleep(1)
-
-    if not all_quotes:
-        return None
-
-    logger.info(f"🎯 Total instruments fetched: {len(all_quotes)}")
-    return all_quotes
+    logger.error("🛑 Quote fetch failed after retry")
+    return None
 def get_ltp_and_change(security_ids, segment):
     """
     Returns:

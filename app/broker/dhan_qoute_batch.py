@@ -2,7 +2,6 @@
 from app.config.dhan_auth import dhan
 import time
 import logging
-logger = logging.getLogger(__name__)
 import json
 
 logger = logging.getLogger(__name__)
@@ -84,6 +83,7 @@ def get_quotes_with_retry(security_ids, segment, retry_delay=1, max_retries=10):
 
     logger.info(f"🎯 Total instruments fetched: {len(all_quotes)}")
     return all_quotes
+
 def get_ltp_and_change(security_ids, segment):
     """
     Returns:
