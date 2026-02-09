@@ -79,3 +79,16 @@ class SuperOrder:
         except Exception as e:
             logging.exception(f"❌ Failed to cancel Super Order {order_id} leg {leg}: {e}")
             return None
+    def get_super_order_list(self):
+        """
+        Fetch all Super Orders using Dhan SDK.
+        Returns:
+        dict: API response
+        """
+        try:
+            response = self.dhan_client.get_super_order_list()
+            return response
+        except Exception as e:
+            logging.exception(f"❌ Failed to fetch Super Orders: {e}")
+            return None
+   

@@ -97,6 +97,7 @@ def execute_trade(stock, dhan_context):
 
         # 🔎 Check Super Order exit status
         exit_status = broker.check_super_order_exit(order_id)
+        logging.info(f"🎯 exit_status={exit_status} | {stock['Stock Name']}")
         if exit_status == "PARENT_CANCELLED":
             logging.warning(f"❌ Parent order cancelled | {stock['Stock Name']}")
             break
