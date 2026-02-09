@@ -29,52 +29,6 @@ def execute_trade(stock, dhan_context):
     qty = order_info["qty"]
 
     logging.info(f"🚀 Super Order placed for {stock['Stock Name']} | Entry: {entry_price}, SL: {sl_price}, Qty: {qty}")
-     
-    # ─────────────────────────────────────────────
-    # WAIT UNTIL ORDER IS TRADED
-    # ─────────────────────────────────────────────
-    logging.info(f"⏳ Waiting for order to be TRADED...")
-
-    max_wait_seconds = 600
-    start_time = time.time()
-
-    while True:
-        order_status = broker.get_order_status(order_id)
-
-        logging.info(
-            f"📊 Order Status | {stock['Stock Name']} | {order_status}"
-        )
-
-        # ✅ If traded → start LTP monitoring
-        if order_status == "TRADED":
-            logging.info(
-                f"✅ Order TRADED | {stock['Stock Name']} | Starting LTP monitor"
-            )
-            break
-
-        # ❌ If rejected/cancelled → stop
-        if order_status in ["REJECTED", "CANCELLED"]:
-            logging.error(
-                f"❌ Order {order_status} | {stock['Stock Name']}"
-            )
-            return False
-
-        # ⏳ Timeout protection
-        if time.time() - start_time > max_wait_seconds:
-            logging.warning(
-        f"⏰ Order not traded within timeout for {stock['Stock Name']}. Cancelling order..."
-    )
-            try:
-                broker.exit_trade(order_id)  # Cancels ENTRY_LEG
-                logging.info(f"🛑 Order cancelled due to timeout | ID: {order_id}")
-            except Exception as e:
-                logging.error(f"❌ Failed to cancel order: {e}")
-
-            return False
-
-        time.sleep(30)
-
-
     
 
     logging.info(f"🚀 Monitoring trade for {stock['Stock Name']}")
@@ -89,12 +43,6 @@ def execute_trade(stock, dhan_context):
 
     # 3️⃣ Monitor LTP and manage Super Order legs
     while True:
-        # 🔎 First check if trade already exited
-        order_status = broker.get_order_status(order_id)
-        if order_status in ["CANCELLED", "REJECTED"]:
-            logging.warning(f"❌ Trade cancelled externally | {stock['Stock Name']}")
-            break
-
         ltp = get_ltp(stock["Security ID"])
         if not ltp:
             time.sleep(1)

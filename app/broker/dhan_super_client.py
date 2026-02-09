@@ -231,3 +231,35 @@ class DhanSuperBroker:
 
         logging.info(f"Exit trade MARKET response: {resp}")
         return resp
+    
+    def get_order_status(self, order_id):
+        """
+        Fetch order status using DHAN SDK.
+        Returns orderStatus string or None.
+        """
+        try:
+            # Using global dhan (as per your architecture)
+            resp = dhan.get_order_by_id(order_id)
+
+            if isinstance(resp, str):
+                resp = json.loads(resp)
+
+            if resp.get("status") != "success":
+                logging.error(f"❌ Failed to fetch order status: {resp}")
+                return None
+
+            data = resp.get("data", [])
+
+            if not data:
+                logging.warning(f"⚠️ No order data found for {order_id}")
+                return None
+
+            # ✅ Your API clearly returns a list
+            order_status = data[0].get("orderStatus")
+            return order_status
+
+            
+
+        except Exception:
+            logging.exception(f"❌ Exception fetching order status for {order_id}")
+            return None
