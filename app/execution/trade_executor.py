@@ -90,9 +90,27 @@ def execute_trade(stock, dhan_context):
     # 3️⃣ Monitor LTP and manage Super Order legs
     while True:
         # 🔎 First check if trade already exited
-        order_status = broker.get_order_status(order_id)
-        if order_status in ["CANCELLED", "REJECTED"]:
-            logging.warning(f"❌ Trade cancelled externally | {stock['Stock Name']}")
+        #order_status = broker.get_order_status(order_id)
+        #if order_status in ["CANCELLED", "REJECTED"]:
+         #   logging.warning(f"❌ Trade cancelled externally | {stock['Stock Name']}")
+         #   break
+
+        # 🔎 Check Super Order exit status
+        exit_status = broker.check_super_order_exit(order_id)
+        if exit_status == "PARENT_CANCELLED":
+            logging.warning(f"❌ Parent order cancelled | {stock['Stock Name']}")
+            break
+        elif exit_status == "PARENT_REJECTED":
+            logging.error(f"❌ Parent order rejected | {stock['Stock Name']}")
+            break
+        elif exit_status == "STOP_LOSS_HIT":
+            logging.info(f"🛑 STOP LOSS HIT | {stock['Stock Name']}")
+            break
+        elif exit_status == "TARGET_HIT":
+            logging.info(f"🎯 TARGET HIT | {stock['Stock Name']}")
+            break
+        elif exit_status == "EXIT_CANCELLED":
+            logging.info(f"⚫ Trade exited manually | {stock['Stock Name']}")
             break
 
         ltp = get_ltp(stock["Security ID"])
