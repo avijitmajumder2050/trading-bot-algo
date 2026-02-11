@@ -81,7 +81,7 @@ async def post_init(app):
     logger.info("🚀 Starting background jobs")
 
     app.create_task(run_nifty_breakout_trade())
-    app.create_task(terminate_at(target_hour=12, target_minute=30))
+    app.create_task(terminate_at(target_hour=15, target_minute=10))
     
 
 
