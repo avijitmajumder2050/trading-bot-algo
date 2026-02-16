@@ -100,20 +100,19 @@ def execute_trade(stock, dhan_context):
         logging.info(f"🎯 exit_status={exit_status} | {stock['Stock Name']}")
         if exit_status == "PARENT_CANCELLED":
             logging.warning(f"❌ Parent order cancelled | {stock['Stock Name']}")
-            return False
-            
+            break
         elif exit_status == "PARENT_REJECTED":
             logging.error(f"❌ Parent order rejected | {stock['Stock Name']}")
-            return False
+            break
         elif exit_status == "STOP_LOSS_HIT":
             logging.info(f"🛑 STOP LOSS HIT | {stock['Stock Name']}")
-            return True  # Trade completed (loss)
+            break
         elif exit_status == "TARGET_HIT":
             logging.info(f"🎯 TARGET HIT | {stock['Stock Name']}")
-            return True  # Trade completed (profit)
+            break
         elif exit_status == "EXIT_CANCELLED":
             logging.info(f"⚫ Trade exited manually | {stock['Stock Name']}")
-            return True
+            break
 
         ltp = get_ltp(stock["Security ID"])
         if not ltp:
@@ -146,5 +145,3 @@ def execute_trade(stock, dhan_context):
         
         # ⏱️ WAIT 30 SECONDS BEFORE NEXT CHECK
         time.sleep(30)
-    # Fallback safety (should never reach here)
-    return False
