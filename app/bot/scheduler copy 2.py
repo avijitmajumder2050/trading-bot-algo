@@ -15,7 +15,6 @@ from app.strategy.stock_selector import select_best_stock,rank_stocks
 from app.strategy.nifty_filter import is_nifty_trade_allowed
 from app.execution.trade_executor import execute_trade
 from app.broker.market_data import get_nifty_ltp_and_prev_close
-import random
 
 # --------------------------
 # InsideBar 5-min scan state
@@ -61,34 +60,6 @@ async def terminate_at(target_hour=10, target_minute=40):
             terminate_instance(instance_id)
             break
         await asyncio.sleep(20)
-
-
-
-async def terminate_after_delay(max_delay_minutes=5):
-    """
-    Terminate EC2 after random delay (1 to max_delay_minutes).
-    Default: 1–5 minutes.
-    """
-    delay_minutes = random.randint(1, max_delay_minutes)
-
-    logging.info(f"🕒 EC2 will terminate in {delay_minutes} minute(s)")
-    await send_telegram_message(
-        f"🕒 EC2 will terminate in {delay_minutes} minute(s)"
-    )
-
-    await asyncio.sleep(delay_minutes * 60)
-
-    instance_id = get_instance_id()
-    if not instance_id or instance_id == "UNKNOWN":
-        logging.error("❌ Cannot terminate — instance ID not found")
-        return
-
-    logging.info(f"⏳ {delay_minutes} minute(s) elapsed. Terminating EC2 {instance_id}...")
-    await send_telegram_message(
-        f"⏳ {delay_minutes} minute(s) elapsed. Terminating EC2..."
-    )
-
-    terminate_instance(instance_id)
 
 BUCKET = "dhan-trading-data"
 CSV_KEY = "uploads/nifty_15m_breakout_signals.csv"
@@ -156,8 +127,6 @@ async def run_nifty_breakout_trade():
                     f"✅ Trade executed successfully for {stock['Stock Name']} on attempt {attempt}"
                 )
                 trade_executed_today = True  # ✅ Mark as executed
-                # 🔥 Schedule random termination in background (1–5 min)
-                asyncio.create_task(terminate_after_delay(5))
                 break
             else:
                 logging.error(f"❌ Trade failed for {stock['Stock Name']} on attempt {attempt}")
