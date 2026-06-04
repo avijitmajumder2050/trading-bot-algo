@@ -108,7 +108,7 @@ class DhanSuperBroker:
             target = stock.get("Target")
             if not target or target <= 0:
                 # Use entry as base for target (safer than LTP)
-                target = round(ltp + 2.8 * risk if side_str == "BUY" else ltp - 2.8 * risk, 2)
+                target = round(ltp + 1.5 * risk if side_str == "BUY" else ltp - 1.5 * risk, 2)
 
             # -------------------------------
             # Prepare payload for logging

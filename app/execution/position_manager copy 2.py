@@ -38,6 +38,6 @@ class PositionManager:
         # 1.5R Trail SL / Exit logic
         if (self.side == "BUY" and ltp >= self.target) or \
            (self.side == "SELL" and ltp <= self.target):
-            return "EXIT_TRADE"
+            return "TRAIL_SL"
 
         return None
