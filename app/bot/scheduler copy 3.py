@@ -37,48 +37,6 @@ opposite_lock = asyncio.Lock()
 
 
 
-
-JOURNAL_BUCKET = "dhan-trading-data"
-JOURNAL_KEY = "uploads/fyers_trade_journal.csv"
-
-
-def has_active_trade():
-    try:
-        df = read_csv_from_s3(
-            JOURNAL_BUCKET,
-            JOURNAL_KEY
-        )
-
-        if df is None or df.empty:
-            return False
-
-        df.columns = df.columns.str.strip().str.lower()
-
-        active = df[
-            df["status"]
-            .astype(str)
-            .str.upper()
-            .isin(["OPEN", "ACTIVE"])
-        ]
-
-        if not active.empty:
-            symbol = active.iloc[-1]["symbol"]
-            status = active.iloc[-1]["status"]
-
-            logging.info(
-                f"📈 Active trade found: {symbol} ({status})"
-            )
-
-            return True
-
-        return False
-
-    except Exception as e:
-        logging.error(
-            f"Failed to check trade journal: {e}"
-        )
-        return True   # safest option
-
 # --------------------------
 # EC2 Termination Scheduler
 # --------------------------
@@ -107,59 +65,30 @@ async def terminate_at(target_hour=10, target_minute=40):
 
 
 async def terminate_after_delay(max_delay_minutes=5):
+    """
+    Terminate EC2 after random delay (1 to max_delay_minutes).
+    Default: 1–5 minutes.
+    """
+    delay_minutes = random.randint(1, max_delay_minutes)
 
-    delay_minutes = random.randint(
-        1,
-        max_delay_minutes
-    )
-
-    logging.info(
-        f"🕒 EC2 termination scheduled in {delay_minutes} minute(s)"
-    )
-
+    logging.info(f"🕒 EC2 will terminate in {delay_minutes} minute(s)")
     await send_telegram_message(
-        f"🕒 EC2 termination scheduled in {delay_minutes} minute(s)"
+        f"🕒 EC2 will terminate in {delay_minutes} minute(s)"
     )
 
-    await asyncio.sleep(
-        delay_minutes * 60
+    await asyncio.sleep(delay_minutes * 60)
+
+    instance_id = get_instance_id()
+    if not instance_id or instance_id == "UNKNOWN":
+        logging.error("❌ Cannot terminate — instance ID not found")
+        return
+
+    logging.info(f"⏳ {delay_minutes} minute(s) elapsed. Terminating EC2 {instance_id}...")
+    await send_telegram_message(
+        f"⏳ {delay_minutes} minute(s) elapsed. Terminating EC2..."
     )
 
-    while True:
-
-        if has_active_trade():
-
-            logging.info(
-                "⏳ Active trade exists. Waiting for trade closure before terminating EC2."
-            )
-
-            await send_telegram_message(
-                "⏳ Active trade exists. EC2 termination postponed."
-            )
-
-            await asyncio.sleep(60)
-
-            continue
-
-        logging.info(
-            "✅ No active trades found. Proceeding with EC2 termination."
-        )
-
-        await send_telegram_message(
-            "✅ Trade closed. Terminating EC2."
-        )
-
-        instance_id = get_instance_id()
-
-        if not instance_id or instance_id == "UNKNOWN":
-            logging.error(
-                "❌ Cannot terminate — instance ID not found"
-            )
-            return
-
-        terminate_instance(instance_id)
-
-        break
+    terminate_instance(instance_id)
 
 BUCKET = "dhan-trading-data"
 CSV_KEY = "uploads/nifty_15m_breakout_signals.csv"
