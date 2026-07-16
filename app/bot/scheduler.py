@@ -10,7 +10,7 @@ from app.bot.telegram_sender import send_telegram_message
 from app.utils.get_instance_id import get_instance_id  # your existing function
 
 import threading
-from app.config.aws_s3 import read_csv_from_s3
+from app.config.aws_s3 import read_csv_from_s3,S3_BUCKET
 from app.strategy.stock_selector import select_best_stock,rank_stocks
 from app.strategy.nifty_filter import is_nifty_trade_allowed
 from app.execution.trade_executor import execute_trade
@@ -38,14 +38,14 @@ opposite_lock = asyncio.Lock()
 
 
 
-JOURNAL_BUCKET = "dhan-trading-data"
+
 JOURNAL_KEY = "uploads/fyers_trade_journal.csv"
 
 
 def has_active_trade():
     try:
         df = read_csv_from_s3(
-            JOURNAL_BUCKET,
+            S3_BUCKET,
             JOURNAL_KEY
         )
 
@@ -161,7 +161,7 @@ async def terminate_after_delay(max_delay_minutes=5):
 
         break
 
-BUCKET = "dhan-trading-data"
+
 CSV_KEY = "uploads/nifty_15m_breakout_signals.csv"
 # --------------------------
 # Daily trade state
@@ -178,7 +178,7 @@ async def run_nifty_breakout_trade():
 
     try:
         logging.info("📥 Reading breakout signals from S3")
-        df = read_csv_from_s3(BUCKET, CSV_KEY)
+        df = read_csv_from_s3(S3_BUCKET, CSV_KEY)
 
         ranked_stocks = rank_stocks(df)
         if not ranked_stocks:
