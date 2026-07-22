@@ -4,6 +4,10 @@ import os
 from pytz import timezone
 from datetime import time
 from app.config.aws_ssm import get_param
+from app.config.aws_s3 import (
+    AWS_REGION,
+    S3_BUCKET,
+)
 
 # --- Timezone ---
 IST = timezone("Asia/Kolkata")
@@ -12,8 +16,7 @@ IST = timezone("Asia/Kolkata")
 INSIDEBAR_SCAN_TIME = time(9, 31)  # 9:31 AM
 
 # --- AWS Config ---
-AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-S3_BUCKET = os.getenv("S3_BUCKET", "dhan-trading-data")
+
 MAP_FILE_KEY = "uploads/mapping.csv"
 NIFTYMAP_FILE_KEY="uploads/nifty_mapping.csv"
 # S3 keys
