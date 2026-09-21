@@ -109,8 +109,16 @@ class DhanSuperBroker:
 
             target = stock.get("Target")
             if not target or target <= 0:
-                # Use entry as base for target (safer than LTP)
-                target = round(ltp + 2.8 * risk if side_str == "BUY" else ltp - 2.8 * risk, 2)
+                # RR 1:5 — must match PositionManager's own default rr
+                # (app/execution/position_manager.py), which is what
+                # decides when trade_executor's monitoring loop treats
+                # the trade as "target reached". A mismatch here means
+                # Dhan's own TARGET_LEG could fire at a different (in
+                # this case much lower, 1:2.8) level than intended,
+                # exiting the real order before that logic ever gets a
+                # say — caught live via PAPER_MODE before any real
+                # order actually used the wrong value.
+                target = round(ltp + 5 * risk if side_str == "BUY" else ltp - 5 * risk, 2)
 
             # -------------------------------
             # Prepare payload for logging
