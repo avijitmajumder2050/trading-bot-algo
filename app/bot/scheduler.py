@@ -111,7 +111,12 @@ async def poll_quantile_order_intents():
 
                 stock = {
                     "Stock Name": claimed["symbol"],
-                    "Security ID": claimed["security_id"],
+                    # int, not the raw string from DynamoDB — dhan.quote_data()
+                    # (used by get_ltp) silently fails with an empty error body
+                    # on a string security id; place_trade() casts back to str
+                    # itself for the order-placement calls, which do expect a
+                    # string, so this only needs to be an int for the LTP path.
+                    "Security ID": int(claimed["security_id"]),
                     "Entry": float(claimed["entry_price"]),
                     "SL": float(claimed["sl_price"]),
                     "Signal": claimed.get("side", "BUY"),
