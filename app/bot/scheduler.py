@@ -55,11 +55,22 @@ def has_active_trade():
 
         df.columns = df.columns.str.strip().str.lower()
 
+        # Nothing in this codebase ever writes CLOSED/SL_HIT back to this
+        # journal for a trade that's actually finished (it's only ever
+        # read here) - confirmed live: rows going back to early August
+        # are still sitting at status ACTIVE, weeks after any real
+        # intraday MIS position would have closed. Treating every one of
+        # those as "still open" made this check permanently true, which
+        # made terminate_after_delay() send a Telegram alert every 60
+        # seconds forever on every run. Only a row dated *today* can
+        # plausibly still be a real open position.
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
         active = df[
             df["status"]
             .astype(str)
             .str.upper()
             .isin(["OPEN", "ACTIVE"])
+            & (df["trade_date"].astype(str).str.strip() == today_str)
         ]
 
         if not active.empty:
