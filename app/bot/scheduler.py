@@ -101,6 +101,44 @@ def has_active_trade():
 
 
 # --------------------------
+# Terminate as soon as it's safe, instead of sitting idle (billable)
+# until the terminate_at(15:10) hard backstop. Gated to never check
+# before Quantile's breakout window closes (10:30 IST, matching
+# app.py's AUTO_BREAKOUT_WINDOW_END in the Quantile repo) — the nifty
+# strategy's own "no trade" conclusion lands right at market open
+# (~9:31), well before that, and terminating on that alone could kill
+# the instance before Quantile's breakout race has had its full window
+# to produce a winner. has_active_trade() is the single source of
+# truth for "is it safe yet" — it already covers both today's nifty
+# journal rows and any open Quantile order intent.
+# --------------------------
+QUANTILE_WINDOW_END_HOUR = 10
+QUANTILE_WINDOW_END_MINUTE = 30
+
+
+async def terminate_after_quantile_window():
+    now = datetime.now(IST)
+    target = now.replace(hour=QUANTILE_WINDOW_END_HOUR, minute=QUANTILE_WINDOW_END_MINUTE, second=0, microsecond=0)
+    if now < target:
+        await asyncio.sleep((target - now).total_seconds())
+
+    while True:
+        if has_active_trade():
+            await asyncio.sleep(60)
+            continue
+
+        instance_id = get_instance_id()
+        if not instance_id or instance_id == "UNKNOWN":
+            logging.error("❌ Cannot terminate — instance ID not found")
+            return
+
+        logging.info("✅ No trade active past Quantile window — terminating EC2")
+        await send_telegram_message("✅ No trade today — terminating EC2 to save cost")
+        terminate_instance(instance_id)
+        return
+
+
+# --------------------------
 # Quantile order-intent polling — the dedicated-IP order execution
 # side of app.py's _breakout_watch_once() -> quantile-order-intents
 # hand-off (see connectors/order_intent_connector.py in the Quantile
