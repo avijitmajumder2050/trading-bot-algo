@@ -30,10 +30,21 @@ def _load_leverage_from_s3():
     if "MIS_LEVERAGE" not in df.columns:
         logger.warning("⚠️ MIS_LEVERAGE missing, defaulting to 1")
 
+    # mapping.csv's Instrument ID column is stored/read as float64
+    # (e.g. "25468.0"), but callers look up by the plain integer id
+    # Dhan itself uses ("25468") - str()'ing the raw column produced
+    # keys that could never match a real lookup, so EVERY instrument
+    # silently fell back to the default leverage of 1. Confirmed live:
+    # PAISALO (25468) is genuinely in the file with MIS_LEVERAGE=5,
+    # but get_leverage("25468") still missed it before this fix.
+    ids = pd.to_numeric(df["Instrument ID"], errors="coerce")
+    valid = ids.notna()
+    leverage_col = df["MIS_LEVERAGE"] if "MIS_LEVERAGE" in df.columns else pd.Series(1, index=df.index)
+
     _LEVERAGE_MAP = dict(
         zip(
-            df["Instrument ID"].astype(str),
-            df.get("MIS_LEVERAGE", 1)
+            ids[valid].astype(int).astype(str),
+            leverage_col[valid]
         )
     )
 
