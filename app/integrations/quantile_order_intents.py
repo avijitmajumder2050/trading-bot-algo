@@ -95,10 +95,15 @@ def mark_intent_result(entry_id, status, **extra_fields):
 
 
 def has_open_intents():
-    """claimed/paper_filled/live_filled — anything not yet closed/failed.
-    Used to hold off self-termination while a trade this instance placed
-    is still open."""
+    """Only "claimed" genuinely means work is still in progress.
+    paper_filled is itself a final state - a paper trade is done the
+    moment it's recorded, nothing monitors it further (confirmed live:
+    treating it as still-open meant an instance could never
+    self-terminate after a successful paper fill, since nothing ever
+    moves it past that status). live_filled is likewise never actually
+    left in that state by execute_trade(), which blocks until a real
+    trade's SL/target/manual exit and marks it "closed" directly."""
     items = _get_table().scan(
-        FilterExpression=Attr("status").is_in(["claimed", "paper_filled", "live_filled"])
+        FilterExpression=Attr("status").eq("claimed")
     ).get("Items", [])
     return len(items) > 0
