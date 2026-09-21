@@ -18,12 +18,11 @@ INSIDEBAR_SCAN_TIME = time(9, 31)  # 9:31 AM
 # --- AWS Config ---
 
 MAP_FILE_KEY = "uploads/mapping.csv"
+# Used both as its own leverage source (for a genuinely Nifty-scoped
+# lookup) and as leverage_manager.py's fallback for a real breakout
+# winner mapping.csv's curated ~339 stocks doesn't cover (confirmed
+# live: POWERGRID/14977 missing from mapping.csv but present here).
 NIFTYMAP_FILE_KEY="uploads/nifty_mapping.csv"
-# Broader universe than mapping.csv's curated ~339 stocks - used as a
-# fallback in leverage_manager.py for a real winner mapping.csv simply
-# doesn't cover (confirmed live: POWERGRID/14977 missing from
-# mapping.csv but present here with MIS_LEVERAGE=5).
-ALL_SYMBOLS_MAP_FILE_KEY = "marketsmith-data/input/raw_mapping_all_symbols.csv"
 # S3 keys
 CANDLE_FILE_KEY = "uploads/inside_bar_15min_data_RS80.csv"   # 15-min candle CSV in S3
 FILTERED_FILE_KEY = "uploads/inside_bar_15min_RS80.csv"  # optional filtered output

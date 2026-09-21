@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import boto3
 
-from app.config.settings import S3_BUCKET, MAP_FILE_KEY, ALL_SYMBOLS_MAP_FILE_KEY, AWS_REGION
+from app.config.settings import S3_BUCKET, MAP_FILE_KEY, NIFTYMAP_FILE_KEY, AWS_REGION
 from app.config.aws_s3 import s3
 
 logger = logging.getLogger(__name__)
@@ -38,15 +38,15 @@ def _load_leverage_from_s3():
     # curated (RS Rating, Setup_Case etc.) rather than the full NSE
     # universe, so a real breakout winner can land outside its ~339
     # stocks (confirmed live: POWERGRID/14977 missing from mapping.csv
-    # entirely). ALL_SYMBOLS_MAP_FILE_KEY is a broader fallback used
-    # only to fill in ids mapping.csv doesn't have - mapping.csv's own
-    # value always wins for anything both files cover.
+    # entirely, but present in nifty_mapping.csv). NIFTYMAP_FILE_KEY is
+    # a fallback used only to fill in ids mapping.csv doesn't have -
+    # mapping.csv's own value always wins for anything both cover.
     global _LEVERAGE_MAP
 
     _LEVERAGE_MAP = _leverage_map_from_csv(MAP_FILE_KEY)
 
     try:
-        fallback = _leverage_map_from_csv(ALL_SYMBOLS_MAP_FILE_KEY)
+        fallback = _leverage_map_from_csv(NIFTYMAP_FILE_KEY)
         added = 0
         for sec_id, lev in fallback.items():
             if sec_id not in _LEVERAGE_MAP:
@@ -54,7 +54,7 @@ def _load_leverage_from_s3():
                 added += 1
         logger.info(f"📊 Fallback map added {added} instruments not in mapping.csv")
     except Exception as exc:
-        logger.warning(f"⚠️ Couldn't load fallback leverage map ({ALL_SYMBOLS_MAP_FILE_KEY}): {exc}")
+        logger.warning(f"⚠️ Couldn't load fallback leverage map ({NIFTYMAP_FILE_KEY}): {exc}")
 
     logger.info(f"📊 Loaded leverage for {len(_LEVERAGE_MAP)} instruments")
 
