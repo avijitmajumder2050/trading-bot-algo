@@ -15,6 +15,7 @@ from app.strategy.stock_selector import select_best_stock,rank_stocks
 from app.strategy.nifty_filter import is_nifty_trade_allowed
 from app.execution.trade_executor import execute_trade
 from app.broker.market_data import get_nifty_ltp_and_prev_close
+from app.integrations import quantile_order_intents
 import random
 
 # --------------------------
@@ -71,6 +72,14 @@ def has_active_trade():
 
             return True
 
+        # Also hold off termination while a Quantile-triggered auto-order
+        # is still claimed/open — a second, independent check so
+        # self-termination logic never assumes the trade journal CSV is
+        # the only place an open position could be recorded.
+        if quantile_order_intents.has_open_intents():
+            logging.info("📈 Open Quantile order intent found")
+            return True
+
         return False
 
     except Exception as e:
@@ -78,6 +87,67 @@ def has_active_trade():
             f"Failed to check trade journal: {e}"
         )
         return True   # safest option
+
+
+# --------------------------
+# Quantile order-intent polling — the dedicated-IP order execution
+# side of app.py's _breakout_watch_once() -> quantile-order-intents
+# hand-off (see connectors/order_intent_connector.py in the Quantile
+# repo). Idempotency gate 2 (claim_pending_intent's conditional
+# update) is what makes it safe for this loop to overlap with itself
+# or run more than once.
+# --------------------------
+QUANTILE_POLL_INTERVAL_SECONDS = 15
+
+
+async def poll_quantile_order_intents():
+    while True:
+        try:
+            for intent in quantile_order_intents.list_pending_intents():
+                entry_id = intent["entry_id"]
+                claimed = quantile_order_intents.claim_pending_intent(entry_id)
+                if claimed is None:
+                    continue  # another poll cycle already claimed it
+
+                stock = {
+                    "Stock Name": claimed["symbol"],
+                    "Security ID": claimed["security_id"],
+                    "Entry": float(claimed["entry_price"]),
+                    "SL": float(claimed["sl_price"]),
+                    "Signal": claimed.get("side", "BUY"),
+                }
+
+                logging.info(f"📥 Claimed Quantile order intent | {stock['Stock Name']}")
+                await send_telegram_message(
+                    f"📥 Placing auto-order for {stock['Stock Name']} (from Quantile breakout win)"
+                )
+
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, execute_trade, stock, dhan)
+
+                if not result:
+                    quantile_order_intents.mark_intent_result(entry_id, "failed")
+                    await send_telegram_message(f"❌ Auto-order failed for {stock['Stock Name']}")
+                    continue
+
+                is_paper = bool(result.get("paper"))
+                quantile_order_intents.mark_intent_result(
+                    entry_id,
+                    "paper_filled" if is_paper else "closed",
+                    order_id=result.get("order_id"),
+                    outcome=result.get("outcome"),
+                    filled_qty=result.get("qty"),
+                    target_price=result.get("target"),
+                    trailing_jump=result.get("trailing_jump"),
+                )
+                await send_telegram_message(
+                    f"{'📝 PAPER' if is_paper else '✅'} {stock['Stock Name']} | outcome={result.get('outcome')}"
+                )
+
+        except Exception as e:
+            logging.error(f"❌ Error in poll_quantile_order_intents: {e}")
+
+        await asyncio.sleep(QUANTILE_POLL_INTERVAL_SECONDS)
 
 # --------------------------
 # EC2 Termination Scheduler

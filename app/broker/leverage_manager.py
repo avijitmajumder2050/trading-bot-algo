@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import boto3
 
-from app.config.settings import S3_BUCKET, NIFTYMAP_FILE_KEY,AWS_REGION
+from app.config.settings import S3_BUCKET, MAP_FILE_KEY,AWS_REGION
 from app.config.aws_s3 import s3
 
 logger = logging.getLogger(__name__)
@@ -13,9 +13,15 @@ _LEVERAGE_MAP = {}
 
 
 def _load_leverage_from_s3():
+    # MAP_FILE_KEY (uploads/mapping.csv), not NIFTYMAP_FILE_KEY — the
+    # breakout-race winner handed off from Quantile can be any NSE
+    # stock the scanner's top-10 picks, not just a Nifty constituent,
+    # so a Nifty-only leverage table would silently default a real
+    # non-Nifty winner's leverage to 1 even when mapping.csv has its
+    # actual MIS_LEVERAGE on file.
     global _LEVERAGE_MAP
 
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=NIFTYMAP_FILE_KEY)
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=MAP_FILE_KEY)
     df = pd.read_csv(io.BytesIO(obj["Body"].read()))
 
     if "Instrument ID" not in df.columns:

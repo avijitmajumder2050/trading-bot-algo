@@ -33,6 +33,15 @@ LOG_DIR = "logs"
 BOT_TOKEN = get_param("/trading-bot/telegram/BOT_TOKEN", decrypt=True)
 CHAT_ID = get_param("/trading-bot/telegram/CHAT_ID")
 
+# =========================
+# PAPER MODE (FROM SSM) — "true" by default. When true, the auto-order
+# pipeline (Quantile's quantile-order-intents -> DhanSuperBroker) logs
+# the exact order it would place instead of calling Dhan's real
+# place_super_order — no real money at risk until this is flipped to
+# "false" in SSM after reviewing real paper-mode output.
+# =========================
+PAPER_MODE = get_param("/trading-bot-algo/paper_mode", decrypt=False).strip().lower() == "true"
+
 # --- Telegram Keywords ---
 TRIGGER_KEYWORDS = ["scanner", "scan", "momentum", "interday", "intraday"]
 SWING_KEYWORDS = ["swing", "position"]

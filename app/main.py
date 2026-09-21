@@ -11,6 +11,7 @@ from app.bot.handlers import handle_message
 from app.bot.scheduler import (
     terminate_at,
     run_nifty_breakout_trade,
+    poll_quantile_order_intents,
 )
 from app.config.aws_ssm import get_param
 
@@ -82,7 +83,8 @@ async def post_init(app):
 
     app.create_task(run_nifty_breakout_trade())
     app.create_task(terminate_at(target_hour=15, target_minute=10))
-    
+    app.create_task(poll_quantile_order_intents())
+
 
 
 # ───────────────────────────────

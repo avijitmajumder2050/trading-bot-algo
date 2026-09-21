@@ -3,7 +3,9 @@
 import logging
 import json
 import time
+import uuid
 from app.config.dhan_auth import dhan  # DHAN SDK with enums
+from app.config.settings import PAPER_MODE
 from app.broker.super_order import SuperOrder
 from app.broker.market_data import get_ltp
 from app.broker.fund_manager import init_fund_cache
@@ -129,6 +131,25 @@ class DhanSuperBroker:
             logging.info("📦 DHAN SuperOrder Payload:\n%s", json.dumps(order_payload, indent=2))
 
             # -------------------------------
+            # PAPER_MODE: log the exact order that would be placed, no
+            # real Dhan call, no real money at risk. Flip
+            # /trading-bot-algo/paper_mode to "false" in SSM only after
+            # reviewing real paper output.
+            # -------------------------------
+            if PAPER_MODE:
+                paper_order_id = f"PAPER-{uuid.uuid4().hex[:12]}"
+                logging.info(f"📝 PAPER_MODE — would place Super Order for {name} | ID: {paper_order_id}")
+                return {
+                    "order_id": paper_order_id,
+                    "entry": ltp,
+                    "sl": sl,
+                    "qty": qty,
+                    "target": target,
+                    "trailing_jump": trailing_jump,
+                    "paper": True,
+                }
+
+            # -------------------------------
             # Place Super Order (using DHAN enums)
             # -------------------------------
             resp = self.super.place_super_order(
@@ -159,7 +180,10 @@ class DhanSuperBroker:
             "order_id": order_id,
             "entry": ltp,
             "sl": sl,
-            "qty": qty
+            "qty": qty,
+            "target": target,
+            "trailing_jump": trailing_jump,
+            "paper": False,
         }
 
         except Exception:
