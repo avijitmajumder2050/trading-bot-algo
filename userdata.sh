@@ -61,11 +61,31 @@ REPO_URL=$(aws ssm get-parameter \
 cd "$APP_HOME"
 
 # -----------------------------
-# Clone repo (idempotent)
+# Clone repo (idempotent) — wrapped with a timeout+retry. The EIP
+# self-association above needs a brief moment to fully propagate at
+# the network level, and the first substantial outbound HTTPS
+# connection through it (this clone, to github.com) can hang
+# indefinitely if issued in that narrow window — confirmed
+# reproducible twice: a stuck clone, killed and retried a few seconds
+# later, completes instantly. `set -e` at the top of this script means
+# an unhandled hang here would otherwise block the whole boot forever.
 # -----------------------------
 REPO_NAME=$(basename "$REPO_URL" .git)
 if [ ! -d "$REPO_NAME" ]; then
-  git clone "$REPO_URL"
+  CLONE_OK=0
+  for attempt in 1 2 3; do
+    if timeout 30 git clone "$REPO_URL"; then
+      CLONE_OK=1
+      break
+    fi
+    echo "⚠️ git clone attempt $attempt timed out/failed, retrying..."
+    rm -rf "$REPO_NAME"
+    sleep 5
+  done
+  if [ "$CLONE_OK" -ne 1 ]; then
+    echo "❌ git clone failed after 3 attempts, aborting bootstrap"
+    exit 1
+  fi
 fi
 
 cd "$REPO_NAME"
