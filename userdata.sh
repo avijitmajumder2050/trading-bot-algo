@@ -25,6 +25,24 @@ echo "✅ Installed Python 3.11"
 python3 --version  # should remain system 3.9
 
 # -----------------------------
+# Self-associate the pre-reserved "dhan" Elastic IP — Dhan's order-
+# placement API only accepts calls from this whitelisted address, and
+# every fresh launch otherwise gets a random dynamic IP. The instance
+# profile (EC2-AI-Agent-Role) already grants ec2:AssociateAddress via
+# the Assign_ipaddress inline policy.
+# -----------------------------
+DHAN_EIP_ALLOCATION_ID="eipalloc-0daf98ed664e3827f"
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+SELF_INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+aws ec2 associate-address \
+  --instance-id "$SELF_INSTANCE_ID" \
+  --allocation-id "$DHAN_EIP_ALLOCATION_ID" \
+  --region "$REGION"
+echo "✅ Associated dedicated Dhan IP (allocation $DHAN_EIP_ALLOCATION_ID) to $SELF_INSTANCE_ID"
+
+# -----------------------------
 # Safe python aliases (user only)
 # -----------------------------
 BASHRC="$APP_HOME/.bashrc"
