@@ -17,6 +17,7 @@ cycles can never both act on the same intent.
 
 import datetime
 import logging
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -65,12 +66,21 @@ def claim_pending_intent(entry_id):
 
 def mark_intent_result(entry_id, status, **extra_fields):
     """status: paper_filled | live_filled | closed | failed. extra_fields
-    e.g. order_id, outcome, filled_qty, target_price, trailing_jump."""
+    e.g. order_id, outcome, filled_qty, target_price, trailing_jump.
+
+    Confirmed live: dhan_super_client.place_trade() returns plain Python
+    floats (qty/target/trailing_jump come straight out of round()) -
+    boto3's DynamoDB resource rejects those outright ("Float types are
+    not supported"), which silently failed every real paper/live fill
+    write-back until caught by an actual e2e run. str() first avoids
+    binary-float rounding artifacts (Decimal(0.1) != Decimal("0.1"))."""
     now_iso = datetime.datetime.utcnow().isoformat()
     update_parts = ["#s = :status", "updated_at = :now"]
     names = {"#s": "status"}
     values = {":status": status, ":now": now_iso}
     for i, (key, val) in enumerate(extra_fields.items()):
+        if isinstance(val, float):
+            val = Decimal(str(val))
         placeholder = f":v{i}"
         name_placeholder = f"#f{i}"
         update_parts.append(f"{name_placeholder} = {placeholder}")
