@@ -7,7 +7,7 @@ import uuid
 from app.config.dhan_auth import dhan  # DHAN SDK with enums
 from app.config.settings import PAPER_MODE
 from app.broker.super_order import SuperOrder
-from app.broker.market_data import get_ltp
+from app.broker.market_data import get_ltp_and_circuit_limits
 from app.broker.fund_manager import init_fund_cache
 from app.broker.leverage_manager import init_leverage_cache
 from app.broker.position_sizing import calculate_position_size
@@ -62,11 +62,11 @@ class DhanSuperBroker:
             init_leverage_cache()
 
             # -------------------------------
-            # Fetch LTP with retries
+            # Fetch LTP (+ circuit limits) with retries
             # -------------------------------
-            ltp = None
+            ltp, lower_circuit, upper_circuit = None, None, None
             for attempt in range(max_ltp_retries):
-                ltp = get_ltp(stock["Security ID"])
+                ltp, lower_circuit, upper_circuit = get_ltp_and_circuit_limits(stock["Security ID"])
                 if ltp is not None:
                     break
                 logging.warning(f"LTP fetch failed for {name}, retry {attempt + 1}/{max_ltp_retries}")
@@ -75,8 +75,25 @@ class DhanSuperBroker:
             if ltp is None:
                 logging.error(f"❌ Unable to fetch LTP for {name}. Aborting order.")
                 return None
-            
-            
+
+            # -------------------------------
+            # Skip a stock that's already at/near its own circuit band.
+            # Confirmed live (TBZ, 2026-09-22): last_price was exactly
+            # equal to upper_circuit_limit - frozen, no sellers left
+            # (sell depth all zero), so there's no real room to run and
+            # no real liquidity to exit through if it reverses. A 0.5%
+            # buffer catches a stock that's about to freeze too, not
+            # just one already fully locked.
+            # -------------------------------
+            CIRCUIT_PROXIMITY_BUFFER = 0.005
+            if side_str == "BUY" and upper_circuit:
+                if ltp >= upper_circuit * (1 - CIRCUIT_PROXIMITY_BUFFER):
+                    logging.warning(f"⚠️ Skipping BUY for {name}: LTP={ltp} is at/near upper circuit {upper_circuit} — frozen/illiquid, not a real breakout")
+                    return None
+            elif side_str == "SELL" and lower_circuit:
+                if ltp <= lower_circuit * (1 + CIRCUIT_PROXIMITY_BUFFER):
+                    logging.warning(f"⚠️ Skipping SELL for {name}: LTP={ltp} is at/near lower circuit {lower_circuit} — frozen/illiquid, not a real breakdown")
+                    return None
 
             # -------------------------------
             # Skip order if price already crossed entry

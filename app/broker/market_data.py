@@ -192,3 +192,53 @@ def get_ltp(security_id, segment="NSE_EQ", retry_delay=1, max_attempts=7):
 
     return None
 
+
+def get_ltp_and_circuit_limits(security_id, segment="NSE_EQ", retry_delay=1, max_attempts=7):
+    """Same quote_data() call as get_ltp(), but also returns the day's
+    circuit band - lets a caller skip a stock that's already at/near
+    its own circuit before ever placing an order. Confirmed live
+    (TBZ, 2026-09-22): last_price was exactly equal to
+    upper_circuit_limit - a frozen, illiquid stock (sell depth all
+    zero) that still produced a qualifying-looking candle shape.
+
+    Returns (ltp, lower_circuit_limit, upper_circuit_limit) - any of
+    the three can be None if that field was missing from the quote,
+    though only ltp being None should ever actually happen in
+    practice (per get_ltp's own retry behavior).
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = dhan.quote_data(securities={segment: [security_id]})
+
+            data = resp.get("data", {})
+            inner_data = data.get("data", {}) if isinstance(data, dict) else {}
+            segment_data = inner_data.get(segment, {}) if isinstance(inner_data, dict) else {}
+            quote = segment_data.get(str(security_id)) if isinstance(segment_data, dict) else None
+            if not quote or not isinstance(quote, dict):
+                raise ValueError(f"Empty or invalid quote: {quote}")
+
+            ltp = quote.get("last_price")
+            if ltp is None:
+                raise ValueError("LTP missing in quote")
+
+            lower = quote.get("lower_circuit_limit")
+            upper = quote.get("upper_circuit_limit")
+
+            if attempt > 1:
+                logger.info(f"✅ get_ltp_and_circuit_limits succeeded for {security_id} on attempt {attempt}")
+            logger.info(f"📡 get_ltp_and_circuit_limits OK | {security_id} | LTP={ltp} | circuit=[{lower},{upper}] | attempt={attempt}")
+            return (
+                float(ltp),
+                float(lower) if lower is not None else None,
+                float(upper) if upper is not None else None,
+            )
+
+        except Exception as e:
+            logger.error(f"❌ get_ltp_and_circuit_limits failed (attempt {attempt}) for {security_id}: {e}")
+            if attempt < max_attempts:
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"❌ All {max_attempts} attempts failed for {security_id}")
+
+    return None, None, None
+
