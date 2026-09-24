@@ -32,10 +32,6 @@ def rank_stocks(df: pd.DataFrame):
         logging.info("CSV empty")
         return []
 
-    if len(df) == 1:
-        logging.info("❌ Only 1 stock in CSV, skipping trade for today")
-        return []
-
     # Calculate Stop-Loss % for ranking
     df["SL_PCT"] = abs(df["Entry"] - df["SL"]) / df["Entry"] * 100
 

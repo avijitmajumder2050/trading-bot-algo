@@ -299,11 +299,10 @@ trade_executed_today = False  # ✅ Added to prevent multiple trades per day
 # up), and there was no second chance even though the CSV could have
 # picked up better signals later. Now gated to not even look before
 # 9:45 IST, requires at least NIFTY_BREAKOUT_MIN_SIGNALS rows in the
-# CSV before attempting anything, and - if nothing works out on a
-# given pass - keeps periodically re-reading the CSV and retrying
-# instead of quitting after one pass. Bounded naturally by the
-# existing termination backstops (terminate_at, and once a trade
-# succeeds, terminate_after_delay), not an explicit end time here.
+# CSV before attempting anything. Until then it re-reads the CSV every
+# NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS; once there are enough signals
+# it makes exactly one execution pass over them and stops watching,
+# whether or not a trade filled.
 NIFTY_BREAKOUT_START_HOUR = 9
 NIFTY_BREAKOUT_START_MINUTE = 45
 NIFTY_BREAKOUT_MIN_SIGNALS = 2
@@ -387,9 +386,12 @@ async def run_nifty_breakout_trade():
                     )
 
             else:
-                logging.info(f"❌ All {len(ranked_stocks)} signal(s) failed this pass - rechecking in {NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS}s in case the CSV updates")
-                await send_telegram_message(f"❌ All {len(ranked_stocks)} signal(s) failed this pass — still watching")
-                await asyncio.sleep(NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS)
+                logging.info(f"❌ All {len(ranked_stocks)} signal(s) failed - stopping breakout watch for today")
+                await send_telegram_message(f"❌ All {len(ranked_stocks)} signal(s) failed — stopping breakout watch for today")
+
+            # One execution pass only: once the CSV has enough signals and
+            # we've tried them, stop watching whether or not a trade filled.
+            return
 
         except Exception as e:
             logging.error(f"❌ Error in run_nifty_breakout_trade: {e}")
