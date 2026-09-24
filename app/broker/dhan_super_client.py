@@ -58,7 +58,9 @@ class DhanSuperBroker:
             # -------------------------------
             # Init fund & leverage cache (SAFE)
             # -------------------------------
-            init_fund_cache()
+            # force=True: the cached fund was fetched once at boot and
+            # went stale after an earlier trade's charges were debited.
+            init_fund_cache(force=True)
             init_leverage_cache()
 
             # -------------------------------
@@ -305,6 +307,9 @@ class DhanSuperBroker:
 
             # ✅ Your API clearly returns a list
             order_status = data[0].get("orderStatus")
+            if order_status in ("REJECTED", "CANCELLED"):
+                reason = data[0].get("omsErrorDescription") or data[0].get("omsErrorCode")
+                logging.error(f"❌ Order {order_status} reason | {order_id} | {reason}")
             return order_status
 
             
