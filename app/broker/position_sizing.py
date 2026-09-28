@@ -35,4 +35,19 @@ def calculate_position_size(
 
     qty = max(0, min(qty_by_risk, qty_by_fund))
 
+    # Say WHICH limit produced the qty — "Qty zero" alone gave no clue that
+    # the fund side (fund / leverage) was the cause.
+    logger.info(
+        f"📐 Sizing {sec_id}: risk qty={qty_by_risk} (₹{max_loss:.0f} / SL gap {sl_point:.2f}), "
+        f"fund qty={qty_by_fund} (fund ₹{fund:,.2f} × {FUND_UTILIZATION} × leverage {leverage:g} / price {price}) -> qty={qty}"
+    )
+    if qty <= 0:
+        if fund <= 0:
+            reason = "available fund is ₹0 (fund fetch failed or balance used up)"
+        elif qty_by_fund <= 0:
+            reason = f"fund ₹{fund:,.2f} × leverage {leverage:g} can't buy even 1 share at ₹{price}"
+        else:
+            reason = f"SL gap {sl_point:.2f} is larger than the ₹{max_loss:.0f} risk budget"
+        logger.error(f"❌ Position size 0 for {sec_id}: {reason}")
+
     return qty, qty * sl_point, qty * price

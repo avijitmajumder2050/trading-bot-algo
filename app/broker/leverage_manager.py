@@ -74,4 +74,18 @@ def get_leverage(sec_id: str) -> float:
     if str(sec_id) not in _LEVERAGE_MAP:
         logger.warning(f"⚠️ Missing leverage for {sec_id}, default=1")
 
-    return float(lev)
+    try:
+        lev = float(lev)
+    except (TypeError, ValueError):
+        lev = float("nan")
+    # MIS_LEVERAGE 0 (or blank) = no intraday leverage offered for this
+    # stock — ~20% of mapping.csv, mostly recent IPOs. Used as-is it made
+    # the fund-based qty exactly 0 (CLEANMAX, 2026-09-28: "Qty zero after
+    # validation" with the ₹1,000 risk budget allowing 27 shares). Size at
+    # 1x — the plain cash available — instead. If the broker doesn't allow
+    # the stock intraday at all, Dhan rejects the order, and that
+    # rejection (with its reason) shows on Quantile's Orders page.
+    if lev != lev or lev <= 0:  # NaN or <= 0
+        logger.warning(f"⚠️ No MIS leverage for {sec_id} (value={_LEVERAGE_MAP.get(str(sec_id))}) — sizing at 1x (cash only)")
+        return 1.0
+    return lev
