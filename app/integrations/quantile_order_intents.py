@@ -102,8 +102,14 @@ def has_open_intents():
     self-terminate after a successful paper fill, since nothing ever
     moves it past that status). live_filled is likewise never actually
     left in that state by execute_trade(), which blocks until a real
-    trade's SL/target/manual exit and marks it "closed" directly."""
+    trade's SL/target/manual exit and marks it "closed" directly.
+
+    Only today's (UTC date - market hours fall on the same date) intents
+    count: an intraday position can't outlive its day, and one left at
+    "claimed" by an interrupted run (KROSS, 2026-09-23) otherwise kept
+    every later instance from ever self-terminating."""
+    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     items = _get_table().scan(
-        FilterExpression=Attr("status").eq("claimed")
+        FilterExpression=Attr("status").eq("claimed") & Attr("created_at").begins_with(today)
     ).get("Items", [])
     return len(items) > 0
