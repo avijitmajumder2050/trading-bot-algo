@@ -317,7 +317,19 @@ class DhanSuperBroker:
         except Exception:
             logging.exception(f"❌ Exception fetching order status for {order_id}")
             return None
-    
+    def _position_closed(self, security_id):
+        """True only if today's INTRADAY position in security_id is flat
+        (netQty 0). False when it's still open or can't be confirmed."""
+        try:
+            resp = dhan.get_positions()
+            if isinstance(resp, str):
+                resp = json.loads(resp)
+            for pos in resp.get("data") or []:
+                if str(pos.get("securityId")) == str(security_id) and pos.get("productType") == "INTRADAY":
+                    return int(pos.get("netQty") or 0) == 0
+        except Exception:
+            logging.exception(f"❌ Error checking position for {security_id}")
+        return False
 
     def check_super_order_exit(self, order_id):
         """
@@ -371,6 +383,15 @@ class DhanSuperBroker:
                     # 🟢 Target Hit
                     if tgt_status == "TRADED":
                         return "TARGET_HIT"
+
+                    # Dhan can leave a leg that fired at "TRIGGERED" even
+                    # after it filled (confirmed live: AXISBANK 2026-10-05 -
+                    # SL 1229.4 filled at 10:36 as a MARKET sell, leg still
+                    # TRIGGERED, so the monitor kept "watching" a closed
+                    # trade for hours and never reported the SL). Confirm
+                    # against the real position instead.
+                    if "TRIGGERED" in (sl_status, tgt_status) and self._position_closed(order.get("securityId")):
+                        return "TARGET_HIT" if tgt_status == "TRIGGERED" else "STOP_LOSS_HIT"
 
                     # ⚫ Both cancelled (manual exit)
                     if sl_status == "CANCELLED" and tgt_status == "CANCELLED":
