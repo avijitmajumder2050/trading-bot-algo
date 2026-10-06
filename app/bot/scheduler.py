@@ -230,6 +230,9 @@ async def terminate_at(target_hour=10, target_minute=40):
 
 
 
+POSTPONE_REMINDER_MINUTES = 30
+
+
 async def terminate_after_delay(max_delay_minutes=5):
 
     delay_minutes = random.randint(
@@ -249,6 +252,12 @@ async def terminate_after_delay(max_delay_minutes=5):
         delay_minutes * 60
     )
 
+    # Confirmed live: this used to send the Telegram alert on every 60s
+    # check, so a trade stuck at ACTIVE (a Fyers exit the broker kept
+    # rejecting) produced a message a minute until the 15:10 backstop.
+    # Now it alerts once, then only every POSTPONE_REMINDER_MINUTES.
+    last_alert = None
+
     while True:
 
         if has_active_trade():
@@ -257,9 +266,13 @@ async def terminate_after_delay(max_delay_minutes=5):
                 "⏳ Active trade exists. Waiting for trade closure before terminating EC2."
             )
 
-            await send_telegram_message(
-                "⏳ Active trade exists. EC2 termination postponed."
-            )
+            now = datetime.now(IST)
+            if last_alert is None or (now - last_alert).total_seconds() >= POSTPONE_REMINDER_MINUTES * 60:
+                await send_telegram_message(
+                    "⏳ Active trade exists. EC2 termination postponed."
+                    + ("" if last_alert is None else " (still waiting)")
+                )
+                last_alert = now
 
             await asyncio.sleep(60)
 
