@@ -138,14 +138,16 @@ def execute_trade(stock, dhan_context):
         )
         action = pm.process_ltp(ltp)
 
-        # 1R reached → SL to breakeven, enable Dhan-native trailing from here
+        # 1R reached → log only. The Super Order's own trailingJump (0.5R,
+        # set at placement) has already moved the SL to breakeven by the
+        # time price reaches 1R. This used to also send trail_sl(entry),
+        # which did nothing at exactly 1R - but if price had run past
+        # ~1.5R between these 30s polls, Dhan had already trailed the SL
+        # above entry and that modify pulled it back down to entry.
         if action == "TRAIL_SL":
-            trailing_jump = pm.get_trailing_jump()
             logging.info(
-                f"🔁 1R reached for {stock['Stock Name']} | SL to breakeven ({entry_price}), "
-                f"trailingJump={trailing_jump}"
+                f"🔁 1R reached for {stock['Stock Name']} | LTP={ltp} | Dhan trailing has SL at/above breakeven ({entry_price})"
             )
-            broker.trail_sl(order_id, entry_price, trailing_jump=trailing_jump)
         
         # Full exit logic → separate condition
         elif action == "EXIT_TRADE":
