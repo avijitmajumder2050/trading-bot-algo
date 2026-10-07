@@ -137,6 +137,35 @@ def get_nifty_ltp_and_prev_close():
     return ltp, prev_close
 
 
+# Same universe the breakout scanner trades (Nifty 100). Loaded once
+# per process - the instance is fresh every day.
+BREADTH_UNIVERSE_KEY = "uploads/nifty_mapping.csv"
+_breadth_ids = None
+
+
+def get_market_breadth():
+    """Share of the breakout universe trading above its previous close
+    right now (net_change > 0), from one batched quote call.
+
+    Returns (advance_fraction, advancers, total) or (None, 0, 0) if the
+    quotes couldn't be fetched - callers must treat None as unknown."""
+    global _breadth_ids
+    if _breadth_ids is None:
+        from app.config.aws_s3 import read_csv_from_s3, S3_BUCKET
+        df = read_csv_from_s3(S3_BUCKET, BREADTH_UNIVERSE_KEY)
+        _breadth_ids = df["Instrument ID"].dropna().astype(int).tolist()
+
+    changes = get_ltp_and_change(_breadth_ids, "NSE_EQ")
+    valid = [chg for _, chg in changes.values() if chg is not None]
+    # Outside market hours Dhan reports net_change = 0 for everything,
+    # which would read as "0% up" and pass every SELL - treat a mostly
+    # unchanged universe as no data rather than a falling market.
+    if not valid or sum(1 for chg in valid if chg != 0) < len(valid) / 2:
+        return None, 0, 0
+    advancers = sum(1 for chg in valid if chg > 0)
+    return advancers / len(valid), advancers, len(valid)
+
+
 
 
 

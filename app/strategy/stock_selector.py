@@ -23,13 +23,13 @@ def select_best_stock(df: pd.DataFrame):
 
 
 
-# Backtest 2026-09-23..10-07 (98 Nifty stocks, 1-min data): ranking
-# purely by lowest SL% kept picking the tightest ranges - NTPC,
-# AXISBANK, ICICIBANK, GRASIM all < 0.4% and stopped out by noise
-# within minutes (-2.4R over 10 days). Requiring SL% in this band
-# first, then ranking by SL%, turned the same days into +6.4R; the
-# floor alone accounted for most of that.
-MIN_SL_PCT = 0.4
+# Ranking purely by lowest SL% kept picking the tightest ranges, which
+# get stopped out by noise. A 0.4% floor looked best on 10 days
+# (2026-09-23..10-07) but not over 6 months (Apr-Oct 2026, 98 Nifty-100
+# stocks, 1-min data): signals at 0.3-0.4% did better than 0.4-0.8%.
+# 0.3% with the breadth filter was the only setup positive in both
+# Apr-Jun (+5.1R) and Jul-Oct (+12.6R).
+MIN_SL_PCT = 0.3
 MAX_SL_PCT = 2.5
 
 

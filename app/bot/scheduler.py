@@ -12,9 +12,9 @@ from app.utils.get_instance_id import get_instance_id  # your existing function
 import threading
 from app.config.aws_s3 import read_csv_from_s3,S3_BUCKET
 from app.strategy.stock_selector import select_best_stock,rank_stocks
-from app.strategy.nifty_filter import is_nifty_trade_allowed
+from app.strategy.nifty_filter import is_breadth_trade_allowed
 from app.execution.trade_executor import execute_trade
-from app.broker.market_data import get_nifty_ltp_and_prev_close
+from app.broker.market_data import get_market_breadth
 from app.integrations import quantile_order_intents
 import random
 
@@ -319,9 +319,10 @@ trade_executed_today = False  # ✅ Added to prevent multiple trades per day
 # in the CSV 10:08-10:15 on 2026-10-07 waiting for a second one that
 # turned out unusable. The 10-day backtest (see stock_selector.py)
 # showed no benefit from waiting, so the first stock that passes
-# rank_stocks()' SL% band and the Nifty filter is traded right away.
+# rank_stocks()' SL% band and the market-breadth filter (see
+# nifty_filter.is_breadth_trade_allowed) is traded right away.
 # A stock already sent to execute_trade() is never retried that day;
-# one skipped only by the Nifty filter is rechecked next poll.
+# one skipped only by the breadth filter is rechecked next poll.
 NIFTY_BREAKOUT_START_HOUR = 9
 NIFTY_BREAKOUT_START_MINUTE = 45
 NIFTY_BREAKOUT_END_HOUR = 10
@@ -345,7 +346,7 @@ async def run_nifty_breakout_trade():
         await asyncio.sleep(wait_seconds)
 
     tried = set()          # sent to execute_trade() - never retried today
-    nifty_alerted = set()  # Nifty-filter skip already sent to Telegram
+    breadth_alerted = set()  # breadth-filter skip already sent to Telegram
     attempt = 0
 
     while not trade_executed_today:
@@ -366,33 +367,32 @@ async def run_nifty_breakout_trade():
                 await asyncio.sleep(NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS)
                 continue
 
-            # 2️⃣ Nifty quotes
-            nifty_ltp, nifty_prev_close = get_nifty_ltp_and_prev_close()
-            if not nifty_ltp or not nifty_prev_close:
-                logging.error("❌ Failed to fetch Nifty quotes, will retry")
+            # 2️⃣ Market breadth (share of Nifty 100 above previous close)
+            loop = asyncio.get_running_loop()
+            adv, n_up, n_total = await loop.run_in_executor(None, get_market_breadth)
+            if adv is None:
+                logging.error("❌ Failed to fetch market breadth, will retry")
                 await asyncio.sleep(NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS)
                 continue
 
-            net_change = nifty_ltp - nifty_prev_close
-            logging.info(f"📊 Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}")
+            breadth_txt = f"Breadth: {n_up}/{n_total} up ({adv:.0%})"
+            logging.info(f"📊 {breadth_txt}")
 
             # 3️⃣ Try each stock in ranked order
-            loop = asyncio.get_running_loop()
             for stock in ranked_stocks:
                 name = stock["Stock Name"]
-                allowed = is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close)
+                allowed = is_breadth_trade_allowed(stock["Signal"], adv)
                 logging.info(
                     f"🔹 Checking {name} | Signal: {stock['Signal']} | SL% {stock['SL_PCT']:.2f} "
-                    f"| Nifty filter passed: {allowed} | Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+                    f"| Breadth filter passed: {allowed} | {breadth_txt}"
                 )
 
                 if not allowed:
-                    logging.info(f"❌ Nifty filter failed for {name}, skipping")
-                    if name not in nifty_alerted:
-                        nifty_alerted.add(name)
+                    logging.info(f"❌ Breadth filter failed for {name}, skipping")
+                    if name not in breadth_alerted:
+                        breadth_alerted.add(name)
                         await send_telegram_message(
-                            f"❌ Trade skipped for {name} | Nifty filter not passed\n"
-                            f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+                            f"❌ Trade skipped for {name} ({stock['Signal']}) | Breadth filter not passed\n{breadth_txt}"
                         )
                     continue
 
@@ -402,7 +402,7 @@ async def run_nifty_breakout_trade():
                 await send_telegram_message(
                     f"🚀 Attempt {attempt}: Executing trade for {name} | {stock['Signal']}\n"
                     f"Entry: {stock['Entry']}\nSL: {stock['SL']} ({stock['SL_PCT']:.2f}%)\nQty: {stock['Quantity']}\n"
-                    f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+                    f"{breadth_txt}"
                 )
 
                 success = await loop.run_in_executor(None, execute_trade, stock, dhan)
