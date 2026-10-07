@@ -23,10 +23,20 @@ def select_best_stock(df: pd.DataFrame):
 
 
 
+# Backtest 2026-09-23..10-07 (98 Nifty stocks, 1-min data): ranking
+# purely by lowest SL% kept picking the tightest ranges - NTPC,
+# AXISBANK, ICICIBANK, GRASIM all < 0.4% and stopped out by noise
+# within minutes (-2.4R over 10 days). Requiring SL% in this band
+# first, then ranking by SL%, turned the same days into +6.4R; the
+# floor alone accounted for most of that.
+MIN_SL_PCT = 0.4
+MAX_SL_PCT = 2.5
+
+
 def rank_stocks(df: pd.DataFrame):
     """
-    Rank stocks by lowest SL% (risk), return list of dicts.
-    Ignores if CSV is empty.
+    Keep stocks whose SL% is within [MIN_SL_PCT, MAX_SL_PCT], rank by
+    lowest SL%, return list of dicts. Ignores if CSV is empty.
     """
     if df.empty:
         logging.info("CSV empty")
@@ -35,8 +45,12 @@ def rank_stocks(df: pd.DataFrame):
     # Calculate Stop-Loss % for ranking
     df["SL_PCT"] = abs(df["Entry"] - df["SL"]) / df["Entry"] * 100
 
+    in_band = df["SL_PCT"].between(MIN_SL_PCT, MAX_SL_PCT)
+    for _, s in df[~in_band].iterrows():
+        logging.info(f"🚫 {s['Stock Name']} skipped | SL% {s['SL_PCT']:.2f} outside {MIN_SL_PCT}-{MAX_SL_PCT}%")
+
     # Sort by lowest SL% (risk)
-    ranked_df = df.sort_values("SL_PCT")
+    ranked_df = df[in_band].sort_values("SL_PCT")
 
     ranked_stocks = ranked_df.to_dict("records")
     logging.info(f"🔹 Ranked stocks: {[s['Stock Name'] for s in ranked_stocks]}")

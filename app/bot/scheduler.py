@@ -311,14 +311,21 @@ trade_executed_today = False  # ✅ Added to prevent multiple trades per day
 # signals that morning were SELLs the Nifty filter rejected (Nifty was
 # up), and there was no second chance even though the CSV could have
 # picked up better signals later. Now gated to not even look before
-# 9:45 IST, requires at least NIFTY_BREAKOUT_MIN_SIGNALS rows in the
-# CSV before attempting anything. Until then it re-reads the CSV every
-# NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS; once there are enough signals
-# it makes exactly one execution pass over them and stops watching,
-# whether or not a trade filled.
+# 9:45 IST, and re-reads the CSV every NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS
+# until a trade goes through or NIFTY_BREAKOUT_END (no point after it:
+# terminate_after_quantile_window() shuts the instance down then).
+#
+# It used to wait for 2+ signals before trading - JSWENERGY sat alone
+# in the CSV 10:08-10:15 on 2026-10-07 waiting for a second one that
+# turned out unusable. The 10-day backtest (see stock_selector.py)
+# showed no benefit from waiting, so the first stock that passes
+# rank_stocks()' SL% band and the Nifty filter is traded right away.
+# A stock already sent to execute_trade() is never retried that day;
+# one skipped only by the Nifty filter is rechecked next poll.
 NIFTY_BREAKOUT_START_HOUR = 9
 NIFTY_BREAKOUT_START_MINUTE = 45
-NIFTY_BREAKOUT_MIN_SIGNALS = 2
+NIFTY_BREAKOUT_END_HOUR = 10
+NIFTY_BREAKOUT_END_MINUTE = 30
 NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS = 60
 
 
@@ -337,14 +344,25 @@ async def run_nifty_breakout_trade():
         logging.info(f"⏳ Waiting until {NIFTY_BREAKOUT_START_HOUR}:{NIFTY_BREAKOUT_START_MINUTE:02d} IST before checking breakout signals ({wait_seconds:.0f}s)")
         await asyncio.sleep(wait_seconds)
 
+    tried = set()          # sent to execute_trade() - never retried today
+    nifty_alerted = set()  # Nifty-filter skip already sent to Telegram
+    attempt = 0
+
     while not trade_executed_today:
         try:
+            now = datetime.now(IST)
+            end = now.replace(hour=NIFTY_BREAKOUT_END_HOUR, minute=NIFTY_BREAKOUT_END_MINUTE, second=0, microsecond=0)
+            if now >= end:
+                logging.info(f"⏹️ {NIFTY_BREAKOUT_END_HOUR}:{NIFTY_BREAKOUT_END_MINUTE:02d} IST reached with no trade - stopping breakout watch for today")
+                await send_telegram_message("⏹️ No breakout trade by 10:30 — stopping breakout watch for today")
+                return
+
             logging.info("📥 Reading breakout signals from S3")
             df = read_csv_from_s3(S3_BUCKET, CSV_KEY)
 
-            ranked_stocks = rank_stocks(df)
-            if len(ranked_stocks) < NIFTY_BREAKOUT_MIN_SIGNALS:
-                logging.info(f"⏳ Only {len(ranked_stocks)} signal(s) in CSV (need ≥ {NIFTY_BREAKOUT_MIN_SIGNALS}) - rechecking in {NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS}s")
+            ranked_stocks = [s for s in rank_stocks(df) if s["Stock Name"] not in tried]
+            if not ranked_stocks:
+                logging.info(f"⏳ No eligible signal in CSV - rechecking in {NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS}s")
                 await asyncio.sleep(NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS)
                 continue
 
@@ -360,51 +378,50 @@ async def run_nifty_breakout_trade():
 
             # 3️⃣ Try each stock in ranked order
             loop = asyncio.get_running_loop()
-            for attempt, stock in enumerate(ranked_stocks, start=1):
+            for stock in ranked_stocks:
+                name = stock["Stock Name"]
                 allowed = is_nifty_trade_allowed(stock["Signal"], nifty_ltp, nifty_prev_close)
                 logging.info(
-                    f"🔹 Attempt {attempt}: Checking {stock['Stock Name']} | Signal: {stock['Signal']} "
+                    f"🔹 Checking {name} | Signal: {stock['Signal']} | SL% {stock['SL_PCT']:.2f} "
                     f"| Nifty filter passed: {allowed} | Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
                 )
 
                 if not allowed:
-                    logging.info(f"❌ Nifty filter failed for {stock['Stock Name']}, skipping")
-                    await send_telegram_message(
-                        f"❌ Trade skipped for {stock['Stock Name']} | Nifty filter not passed\n"
-                        f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
-                    )
+                    logging.info(f"❌ Nifty filter failed for {name}, skipping")
+                    if name not in nifty_alerted:
+                        nifty_alerted.add(name)
+                        await send_telegram_message(
+                            f"❌ Trade skipped for {name} | Nifty filter not passed\n"
+                            f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
+                        )
                     continue
 
-                logging.info(f"🚀 Attempt {attempt}: Executing trade for {stock['Stock Name']} | {stock['Signal']}")
+                attempt += 1
+                tried.add(name)
+                logging.info(f"🚀 Attempt {attempt}: Executing trade for {name} | {stock['Signal']}")
                 await send_telegram_message(
-                    f"🚀 Attempt {attempt}: Executing trade for {stock['Stock Name']} | {stock['Signal']}\n"
-                    f"Entry: {stock['Entry']}\nSL: {stock['SL']}\nQty: {stock['Quantity']}\n"
+                    f"🚀 Attempt {attempt}: Executing trade for {name} | {stock['Signal']}\n"
+                    f"Entry: {stock['Entry']}\nSL: {stock['SL']} ({stock['SL_PCT']:.2f}%)\nQty: {stock['Quantity']}\n"
                     f"Nifty LTP: {nifty_ltp}, Prev Close: {nifty_prev_close}, Net Change: {net_change:+.2f}"
                 )
 
                 success = await loop.run_in_executor(None, execute_trade, stock, dhan)
                 if success:
-                    logging.info(f"✅ Trade executed successfully for {stock['Stock Name']} on attempt {attempt}")
+                    logging.info(f"✅ Trade executed successfully for {name} on attempt {attempt}")
                     await send_telegram_message(
-                        f"✅ Trade executed successfully for {stock['Stock Name']} on attempt {attempt}"
+                        f"✅ Trade executed successfully for {name} on attempt {attempt}"
                     )
                     trade_executed_today = True  # ✅ Mark as executed
                     # 🔥 Schedule random termination in background (1–5 min)
                     asyncio.create_task(terminate_after_delay(5))
-                    break
-                else:
-                    logging.error(f"❌ Trade failed for {stock['Stock Name']} on attempt {attempt}")
-                    await send_telegram_message(
-                        f"❌ Trade FAILED for {stock['Stock Name']} on attempt {attempt}, trying next best stock..."
-                    )
+                    return
 
-            else:
-                logging.info(f"❌ All {len(ranked_stocks)} signal(s) failed - stopping breakout watch for today")
-                await send_telegram_message(f"❌ All {len(ranked_stocks)} signal(s) failed — stopping breakout watch for today")
+                logging.error(f"❌ Trade failed for {name} on attempt {attempt}")
+                await send_telegram_message(
+                    f"❌ Trade FAILED for {name} on attempt {attempt}, trying next best stock..."
+                )
 
-            # One execution pass only: once the CSV has enough signals and
-            # we've tried them, stop watching whether or not a trade filled.
-            return
+            await asyncio.sleep(NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS)
 
         except Exception as e:
             logging.error(f"❌ Error in run_nifty_breakout_trade: {e}")
