@@ -317,6 +317,72 @@ class DhanSuperBroker:
         except Exception:
             logging.exception(f"❌ Exception fetching order status for {order_id}")
             return None
+    def get_position(self, security_id):
+        """Today's INTRADAY position row for security_id, or None."""
+        try:
+            resp = dhan.get_positions()
+            if isinstance(resp, str):
+                resp = json.loads(resp)
+            for pos in resp.get("data") or []:
+                if str(pos.get("securityId")) == str(security_id) and pos.get("productType") == "INTRADAY":
+                    return pos
+        except Exception:
+            logging.exception(f"❌ Error fetching position for {security_id}")
+        return None
+
+    def square_off_now(self, order_id, security_id, side):
+        """Close the trade immediately at MARKET.
+
+        Dhan has no "exit now" for a Super Order, and modifying the SL leg
+        to just past LTP (exit_trade_market) only fires if price moves
+        another step against us. So: cancel the Super Order (cancelling
+        the main order cancels its SL/target legs, so they can't fire a
+        second exit afterwards), then flatten whatever qty is still open
+        with a plain MARKET order. Returns True once the position is flat.
+        """
+        logging.warning(f"⏰ Square-off now | Order {order_id} | {security_id} {side}")
+        try:
+            resp = self.super.cancel_super_order(order_id, "ENTRY_LEG")
+            logging.info(f"Cancel Super Order response: {resp}")
+        except Exception:
+            logging.exception(f"❌ Cancel Super Order failed for {order_id}")
+
+        for attempt in range(1, 4):
+            pos = self.get_position(security_id)
+            net_qty = int((pos or {}).get("netQty") or 0)
+            if pos is not None and net_qty == 0:
+                logging.info(f"✅ Position flat | {security_id}")
+                return True
+            if pos is None:
+                time.sleep(2)
+                continue
+            try:
+                resp = dhan.place_order(
+                    security_id=str(security_id),
+                    exchange_segment=dhan.NSE,
+                    transaction_type=dhan.SELL if net_qty > 0 else dhan.BUY,
+                    quantity=abs(net_qty),
+                    order_type=dhan.MARKET,
+                    product_type=dhan.INTRA,
+                    price=0,
+                    tag=f"{security_id}_TIMEEXIT",
+                )
+                logging.info(f"Square-off MARKET order (attempt {attempt}) response: {resp}")
+            except Exception:
+                logging.exception(f"❌ Square-off MARKET order failed (attempt {attempt})")
+            time.sleep(3)
+
+        pos = self.get_position(security_id)
+        return pos is not None and int(pos.get("netQty") or 0) == 0
+
+    def exit_fill(self, security_id, side):
+        """(exit_price, realized_pnl) for today's closed position, from
+        Dhan's position book; None for anything it doesn't report."""
+        pos = self.get_position(security_id) or {}
+        price = pos.get("sellAvg") if side.upper() == "BUY" else pos.get("buyAvg")
+        pnl = pos.get("realizedProfit")
+        return (float(price) if price else None), (float(pnl) if pnl is not None else None)
+
     def _position_closed(self, security_id):
         """True only if today's INTRADAY position in security_id is flat
         (netQty 0). False when it's still open or can't be confirmed."""

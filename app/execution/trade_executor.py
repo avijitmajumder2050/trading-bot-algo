@@ -5,6 +5,8 @@ import logging
 from app.execution.position_manager import PositionManager
 from app.broker.dhan_super_client import DhanSuperBroker
 from app.broker.market_data import get_ltp
+from app.config.settings import IST
+from datetime import datetime
 
 def execute_trade(stock, dhan_context):
     """
@@ -101,40 +103,55 @@ def execute_trade(stock, dhan_context):
     )
 
     # 3️⃣ Monitor LTP and manage Super Order legs
-    while True:
-        # 🔎 First check if trade already exited
-        #order_status = broker.get_order_status(order_id)
-        #if order_status in ["CANCELLED", "REJECTED"]:
-         #   logging.warning(f"❌ Trade cancelled externally | {stock['Stock Name']}")
-         #   break
+    name = stock["Stock Name"]
+    entry_time = datetime.now(IST)
 
+    def finish(outcome):
+        """Build the result once the position is closed: exit price and
+        P&L from Dhan's position book, reason from where it exited."""
+        exit_price, pnl = broker.exit_fill(stock["Security ID"], side)
+        if exit_price is None:
+            exit_price = get_ltp(stock["Security ID"])
+        reason = classify_exit(outcome, side, entry_price, sl_price, order_info.get("target"),
+                               order_info.get("trailing_jump"), exit_price)
+        sg = 1 if side == "BUY" else -1
+        risk = abs(entry_price - sl_price)
+        if pnl is None and exit_price:
+            pnl = sg * (exit_price - entry_price) * qty
+        rr = sg * (exit_price - entry_price) / risk if exit_price and risk else None
+        logging.info(f"🏁 {name} closed | {reason} | exit={exit_price} pnl={pnl} rr={rr}")
+        return {**order_info, "outcome": outcome, "exit_reason": reason, "exit_price": exit_price,
+                "pnl": pnl, "rr": rr, "entry_time": entry_time.strftime("%H:%M"),
+                "exit_time": datetime.now(IST).strftime("%H:%M")}
+
+    while True:
         # 🔎 Check Super Order exit status
         exit_status = broker.check_super_order_exit(order_id)
-        logging.info(f"🎯 exit_status={exit_status} | {stock['Stock Name']}")
+        logging.info(f"🎯 exit_status={exit_status} | {name}")
         if exit_status == "PARENT_CANCELLED":
-            logging.warning(f"❌ Parent order cancelled | {stock['Stock Name']}")
+            logging.warning(f"❌ Parent order cancelled | {name}")
             return None
-
         elif exit_status == "PARENT_REJECTED":
-            logging.error(f"❌ Parent order rejected | {stock['Stock Name']}")
+            logging.error(f"❌ Parent order rejected | {name}")
             return None
-        elif exit_status == "STOP_LOSS_HIT":
-            logging.info(f"🛑 STOP LOSS HIT | {stock['Stock Name']}")
-            return {**order_info, "outcome": "STOP_LOSS_HIT"}
-        elif exit_status == "TARGET_HIT":
-            logging.info(f"🎯 TARGET HIT | {stock['Stock Name']}")
-            return {**order_info, "outcome": "TARGET_HIT"}
-        elif exit_status == "EXIT_CANCELLED":
-            logging.info(f"⚫ Trade exited manually | {stock['Stock Name']}")
-            return {**order_info, "outcome": "EXIT_CANCELLED"}
+        elif exit_status in ("STOP_LOSS_HIT", "TARGET_HIT", "EXIT_CANCELLED"):
+            return finish(exit_status)
+
+        # ⏰ Time exit - square off ourselves before Dhan's auto square-off
+        # (which charges extra) and before terminate_at(15:10) kills the box.
+        now = datetime.now(IST)
+        if (now.hour, now.minute) >= (TIME_EXIT_HOUR, TIME_EXIT_MINUTE):
+            logging.warning(f"⏰ {TIME_EXIT_HOUR}:{TIME_EXIT_MINUTE:02d} reached - squaring off {name}")
+            flat = broker.square_off_now(order_id, stock["Security ID"], side)
+            return finish("TIME_EXIT" if flat else "TIME_EXIT_FAILED")
 
         ltp = get_ltp(stock["Security ID"])
         if not ltp:
             time.sleep(1)
             continue
-        
+
         logging.info(
-            f"📈 LTP Monitor | {stock['Stock Name']} | LTP={ltp}"
+            f"📈 LTP Monitor | {name} | LTP={ltp}"
         )
         action = pm.process_ltp(ltp)
 
@@ -146,15 +163,52 @@ def execute_trade(stock, dhan_context):
         # above entry and that modify pulled it back down to entry.
         if action == "TRAIL_SL":
             logging.info(
-                f"🔁 1R reached for {stock['Stock Name']} | LTP={ltp} | Dhan trailing has SL at/above breakeven ({entry_price})"
+                f"🔁 1R reached for {name} | LTP={ltp} | Dhan trailing has SL at/above breakeven ({entry_price})"
             )
-        
-        # Full exit logic → separate condition
+
+        # 5R backstop if the Super Order's own TARGET_LEG hasn't closed it.
+        # Used to modify the SL leg to LTP ∓ 1, which only fills if price
+        # then moves another rupee against us - square off instead.
         elif action == "EXIT_TRADE":
-            logging.info(f"🛑 EXIT_TRADE triggered for {stock['Stock Name']} | Exiting at MARKET STOP_LOSS")
-            broker.exit_trade_market(order_id, side=side, ltp=ltp)
-            logging.info(f"✅ Trade fully exited for {stock['Stock Name']}")
-            return {**order_info, "outcome": "TARGET_HIT"}
+            logging.info(f"🛑 EXIT_TRADE triggered for {name} | squaring off at MARKET")
+            broker.square_off_now(order_id, stock["Security ID"], side)
+            return finish("TARGET_HIT")
 
         # ⏱️ WAIT 30 SECONDS BEFORE NEXT CHECK
         time.sleep(30)
+
+
+# Square off before Dhan's own intraday auto square-off (extra ~Rs 50 +
+# GST per position) and before terminate_at(15:10) terminates EC2.
+TIME_EXIT_HOUR = 15
+TIME_EXIT_MINUTE = 5
+
+
+def classify_exit(outcome, side, entry, sl, target, jump, exit_price):
+    """Human-readable exit reason. Dhan's leg statuses alone can't be
+    trusted for this - JSWENERGY (2026-10-07) hit its breakeven trailing
+    SL but came back as both legs CANCELLED, i.e. "manual exit". So
+    anything not exited by the bot itself is judged by where it filled:
+    at the target, at the original SL, or at one of the 0.5R trail steps."""
+    if outcome == "TIME_EXIT":
+        return f"⏰ Time exit ({TIME_EXIT_HOUR}:{TIME_EXIT_MINUTE:02d})"
+    if outcome == "TIME_EXIT_FAILED":
+        return "⚠️ Time exit FAILED - check position in Dhan"
+    if not exit_price:
+        return {"STOP_LOSS_HIT": "🛑 SL hit", "TARGET_HIT": "🎯 Target hit"}.get(outcome, "✋ Manual exit")
+    sg = 1 if side == "BUY" else -1
+    risk = abs(entry - sl)
+    tol = 0.15 * risk
+    if target and sg * (exit_price - target) >= -tol:
+        return "🎯 Target hit (5R)"
+    if abs(exit_price - sl) <= tol:
+        return "🛑 SL hit"
+    if jump and sg * (exit_price - sl) > 0:
+        steps = sg * (exit_price - sl) / jump
+        if abs(steps - round(steps)) * jump <= tol:
+            return "🔁 Trailing SL hit"
+    if outcome == "STOP_LOSS_HIT":
+        return "🔁 Trailing SL hit"
+    if outcome == "TARGET_HIT":
+        return "🎯 Target hit"
+    return "✋ Manual exit"

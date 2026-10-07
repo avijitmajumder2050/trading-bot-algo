@@ -330,6 +330,21 @@ NIFTY_BREAKOUT_END_MINUTE = 30
 NIFTY_BREAKOUT_POLL_INTERVAL_SECONDS = 60
 
 
+def format_trade_closed(name, signal, attempt, result):
+    """Telegram summary once execute_trade() returns a closed trade."""
+    def num(v, fmt):
+        return format(v, fmt) if isinstance(v, (int, float)) else "?"
+    pnl = result.get("pnl")
+    icon = "✅" if isinstance(pnl, (int, float)) and pnl > 0 else "❌" if isinstance(pnl, (int, float)) and pnl < 0 else "⚪"
+    return (
+        f"{icon} {name} {signal} closed — {result.get('exit_reason', result.get('outcome'))}\n"
+        f"Entry: {num(result.get('entry'), '.2f')} @ {result.get('entry_time', '?')}  →  "
+        f"Exit: {num(result.get('exit_price'), '.2f')} @ {result.get('exit_time', '?')}\n"
+        f"SL: {num(result.get('sl'), '.2f')} | Target: {num(result.get('target'), '.2f')} | Qty: {result.get('qty', '?')}\n"
+        f"P&L: ₹{num(pnl, '+,.0f')} ({num(result.get('rr'), '+.2f')}R) | attempt {attempt}"
+    )
+
+
 async def run_nifty_breakout_trade():
     global trade_executed_today
 
@@ -408,9 +423,7 @@ async def run_nifty_breakout_trade():
                 success = await loop.run_in_executor(None, execute_trade, stock, dhan)
                 if success:
                     logging.info(f"✅ Trade executed successfully for {name} on attempt {attempt}")
-                    await send_telegram_message(
-                        f"✅ Trade executed successfully for {name} on attempt {attempt}"
-                    )
+                    await send_telegram_message(format_trade_closed(name, stock["Signal"], attempt, success))
                     trade_executed_today = True  # ✅ Mark as executed
                     # 🔥 Schedule random termination in background (1–5 min)
                     asyncio.create_task(terminate_after_delay(5))
