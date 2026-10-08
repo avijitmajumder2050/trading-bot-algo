@@ -170,6 +170,11 @@ async def poll_quantile_order_intents():
                     "SL": float(claimed["sl_price"]),
                     "Signal": claimed.get("side", "BUY"),
                 }
+                # Quantile halves the risk on weak-breadth days (its
+                # "Entry triggered" alert says HALF) — only these intents
+                # carry it; every other scanner keeps the default.
+                if claimed.get("max_loss") is not None:
+                    stock["Max Loss"] = float(claimed["max_loss"])
 
                 logging.info(f"📥 Claimed Quantile order intent | {stock['Stock Name']}")
                 await send_telegram_message(

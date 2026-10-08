@@ -109,7 +109,7 @@ class DhanSuperBroker:
            
             
 
-            qty, risk_amt, exposure = calculate_position_size(price=ltp,entry=ltp,sl=sl,sec_id=instrument_id,max_loss=1000)
+            qty, risk_amt, exposure = calculate_position_size(price=ltp,entry=ltp,sl=sl,sec_id=instrument_id,max_loss=stock.get("Max Loss") or 1000)
 
             if qty <= 0:
                 logging.error(f"❌ Qty zero after validation | {name} | "f"LTP={ltp}, SL={sl} — see the 'Position size 0' line above for the reason")
